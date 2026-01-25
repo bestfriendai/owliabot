@@ -1,0 +1,43 @@
+/**
+ * Config loader with environment variable expansion
+ */
+
+import { readFile } from "node:fs/promises";
+import { parse } from "yaml";
+import { configSchema, type Config } from "./schema.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("config");
+
+export async function loadConfig(path: string): Promise<Config> {
+  log.info(`Loading config from ${path}`);
+
+  const content = await readFile(path, "utf-8");
+  const raw = parse(content);
+
+  // Expand environment variables
+  const expanded = expandEnvVars(raw);
+
+  // Validate with Zod
+  const config = configSchema.parse(expanded);
+
+  log.info("Config loaded successfully");
+  return config;
+}
+
+function expandEnvVars(obj: unknown): unknown {
+  if (typeof obj === "string") {
+    return obj.replace(/\$\{(\w+)\}/g, (_, key) => process.env[key] ?? "");
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(expandEnvVars);
+  }
+  if (obj && typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = expandEnvVars(value);
+    }
+    return result;
+  }
+  return obj;
+}
