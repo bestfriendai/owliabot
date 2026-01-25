@@ -1,6 +1,14 @@
+// src/agent/providers/anthropic.ts
+/**
+ * Anthropic provider
+ * @see design.md Section 5.5
+ */
+
 import { createLogger } from "../../utils/logger.js";
 import type { Message } from "../session.js";
 import type { LLMResponse, CallOptions } from "../runner.js";
+import type { ToolCall } from "../tools/interface.js";
+import { HTTPError } from "../runner.js";
 
 const log = createLogger("anthropic");
 
@@ -28,12 +36,21 @@ export async function callAnthropic(
 
   const systemMessage = messages.find((m) => m.role === "system");
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: config.model,
     max_tokens: options?.maxTokens ?? 4096,
     system: systemMessage?.content,
     messages: anthropicMessages,
   };
+
+  // Add tools if provided
+  if (options?.tools && options.tools.length > 0) {
+    body.tools = options.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters,
+    }));
+  }
 
   const response = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
@@ -53,13 +70,27 @@ export async function callAnthropic(
 
   const data = (await response.json()) as AnthropicResponse;
 
+  // Extract text content
   const content = data.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)
     .join("");
 
+  // Extract tool calls
+  const toolCalls: ToolCall[] = data.content
+    .filter(
+      (c): c is { type: "tool_use"; id: string; name: string; input: unknown } =>
+        c.type === "tool_use"
+    )
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      arguments: c.input,
+    }));
+
   return {
     content,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     usage: {
       promptTokens: data.usage.input_tokens,
       completionTokens: data.usage.output_tokens,
@@ -68,13 +99,14 @@ export async function callAnthropic(
   };
 }
 
-// Import HTTPError from runner
-import { HTTPError } from "../runner.js";
-
 interface AnthropicResponse {
-  content: Array<{ type: string; text?: string }>;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: unknown }
+  >;
   usage: {
     input_tokens: number;
     output_tokens: number;
   };
+  stop_reason: string;
 }
