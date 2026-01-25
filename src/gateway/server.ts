@@ -26,6 +26,9 @@ import {
   createClearSessionTool,
 } from "../agent/tools/builtin/index.js";
 import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
+import { createCronService } from "../cron/service.js";
+import { executeHeartbeat } from "../cron/heartbeat.js";
+import { createNotificationService } from "../notifications/service.js";
 
 const log = createLogger("gateway");
 
@@ -81,8 +84,30 @@ export async function startGateway(
   await channels.startAll();
   log.info("Gateway started");
 
+  // Create notification service
+  const notifications = createNotificationService({
+    defaultChannel: config.notifications?.channel,
+    channels,
+  });
+
+  // Create cron service
+  const cron = createCronService();
+
+  // Schedule heartbeat if enabled
+  if (config.heartbeat?.enabled) {
+    cron.schedule({
+      id: "heartbeat",
+      pattern: config.heartbeat.cron,
+      handler: async () => {
+        await executeHeartbeat({ config, workspace, notifications });
+      },
+    });
+    log.info(`Heartbeat scheduled: ${config.heartbeat.cron}`);
+  }
+
   // Return cleanup function
   return async () => {
+    cron.stopAll();
     await channels.stopAll();
     log.info("Gateway stopped");
   };
