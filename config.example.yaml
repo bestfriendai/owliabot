@@ -2,6 +2,7 @@
 # Copy to config.yaml and fill in your values
 
 # AI Providers (in priority order)
+# Option 1: API Key (requires developer account)
 providers:
   - id: anthropic
     model: claude-sonnet-4-5
@@ -11,6 +12,14 @@ providers:
     model: gpt-4o
     apiKey: ${OPENAI_API_KEY}
     priority: 2
+
+# Option 2: OAuth (uses Claude subscription, no API key needed)
+# Run 'owliabot auth setup' first, then use:
+# providers:
+#   - id: claude-oauth
+#     model: claude-sonnet-4-5
+#     apiKey: unused  # Required by schema but not used
+#     priority: 1
 
 # Telegram (optional)
 telegram:
