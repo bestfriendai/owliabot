@@ -3,8 +3,12 @@
  * @see design.md Section 5.5
  */
 
+import { createLogger } from "../utils/logger.js";
 import type { Message } from "./session.js";
 import type { ToolDefinition, ToolCall } from "./tools/interface.js";
+import { callAnthropic } from "./providers/anthropic.js";
+
+const log = createLogger("runner");
 
 export interface LLMProvider {
   id: string;
@@ -35,11 +39,10 @@ export interface LLMResponse {
   provider: string;
 }
 
-// Error types for failover logic
 export class HTTPError extends Error {
   constructor(
     public status: number,
-    message: string,
+    message: string
   ) {
     super(message);
     this.name = "HTTPError";
@@ -61,4 +64,51 @@ export function isRetryable(err: unknown): boolean {
     return true;
   }
   return false;
+}
+
+export async function callWithFailover(
+  providers: LLMProvider[],
+  messages: Message[],
+  options?: CallOptions
+): Promise<LLMResponse> {
+  const sorted = [...providers].sort((a, b) => a.priority - b.priority);
+
+  let lastError: Error | null = null;
+
+  for (const provider of sorted) {
+    try {
+      log.info(`Trying provider: ${provider.id}`);
+      return await callProvider(provider, messages, options);
+    } catch (err) {
+      lastError = err as Error;
+      if (isRetryable(err)) {
+        log.warn(
+          `Provider ${provider.id} failed with retryable error, trying next...`
+        );
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError ?? new Error("All providers failed");
+}
+
+async function callProvider(
+  provider: LLMProvider,
+  messages: Message[],
+  options?: CallOptions
+): Promise<LLMResponse> {
+  switch (provider.id) {
+    case "anthropic":
+      return callAnthropic(
+        { apiKey: provider.apiKey, model: provider.model },
+        messages,
+        options
+      );
+
+    // TODO: Add OpenAI, OpenRouter
+    default:
+      throw new Error(`Unknown provider: ${provider.id}`);
+  }
 }
