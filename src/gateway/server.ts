@@ -24,6 +24,8 @@ import {
   echoTool,
   createHelpTool,
   createClearSessionTool,
+  createMemorySearchTool,
+  createMemoryGetTool,
 } from "../agent/tools/builtin/index.js";
 import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
@@ -51,6 +53,8 @@ export async function startGateway(
   tools.register(echoTool);
   tools.register(createHelpTool(tools));
   tools.register(createClearSessionTool(sessions));
+  tools.register(createMemorySearchTool(config.workspace));
+  tools.register(createMemoryGetTool(config.workspace));
 
   // Register Telegram if configured
   if (config.telegram) {
