@@ -4,6 +4,7 @@
 
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
+import { resolve, dirname } from "node:path";
 import { configSchema, type Config } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -20,6 +21,11 @@ export async function loadConfig(path: string): Promise<Config> {
 
   // Validate with Zod
   const config = configSchema.parse(expanded);
+
+  // Resolve workspace path relative to config file
+  const configDir = dirname(resolve(path));
+  config.workspace = resolve(configDir, config.workspace);
+  log.debug(`Resolved workspace path: ${config.workspace}`);
 
   log.info("Config loaded successfully");
   return config;

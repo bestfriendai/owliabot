@@ -9,9 +9,11 @@ import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
 import { logger } from "./utils/logger.js";
-import { createAuthStore } from "./auth/store.js";
-import { startOAuthFlow } from "./auth/oauth.js";
-import { loadClaudeCliToken } from "./auth/claude-cli.js";
+import {
+  startOAuthFlow,
+  getOAuthStatus,
+  clearOAuthCredentials,
+} from "./auth/oauth.js";
 
 const log = logger;
 
@@ -67,17 +69,16 @@ const auth = program.command("auth").description("Manage authentication");
 
 auth
   .command("setup")
-  .description("Setup OAuth authentication with Claude")
+  .description("Setup OAuth authentication with Claude (Anthropic)")
   .action(async () => {
     try {
-      const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-      const authDir = join(homeDir, ".owliabot");
-      const store = createAuthStore(authDir);
-
       log.info("Starting OAuth setup...");
-      const token = await startOAuthFlow({ store });
+      const credentials = await startOAuthFlow();
       log.info("Authentication successful!");
-      log.info(`Token expires at: ${new Date(token.expiresAt).toISOString()}`);
+      log.info(`Token expires at: ${new Date(credentials.expires).toISOString()}`);
+      if (credentials.email) {
+        log.info(`Account: ${credentials.email}`);
+      }
     } catch (err) {
       log.error("Authentication failed", err);
       process.exit(1);
@@ -88,32 +89,20 @@ auth
   .command("status")
   .description("Check authentication status")
   .action(async () => {
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-    const authDir = join(homeDir, ".owliabot");
-    const store = createAuthStore(authDir);
+    const status = await getOAuthStatus();
 
-    // Check OwliaBot's own token
-    const ownToken = await store.get();
-
-    // Check Claude CLI token
-    const cliToken = loadClaudeCliToken();
-
-    if (ownToken) {
-      log.info("Using OwliaBot auth");
-      if (store.isExpired(ownToken)) {
-        log.info("Token expired. Run 'owliabot auth setup' to re-authenticate.");
-      } else {
-        log.info(`Expires at: ${new Date(ownToken.expiresAt).toISOString()}`);
+    if (status.authenticated) {
+      log.info("Authenticated with Anthropic OAuth");
+      // Token is valid (auto-refresh already happened in getOAuthStatus if needed)
+      if (status.expiresAt) {
+        log.info(`Token expires at: ${new Date(status.expiresAt).toISOString()}`);
       }
-    } else if (cliToken) {
-      log.info("Using Claude CLI auth");
-      if (Date.now() >= cliToken.expiresAt) {
-        log.info("Token expired. Run 'claude auth' to re-authenticate.");
-      } else {
-        log.info(`Expires at: ${new Date(cliToken.expiresAt).toISOString()}`);
+      if (status.email) {
+        log.info(`Account: ${status.email}`);
       }
     } else {
-      log.info("Not authenticated. Run 'claude auth' (Claude CLI) first.");
+      log.info("Not authenticated.");
+      log.info("Run 'owliabot auth setup' to authenticate, or set ANTHROPIC_API_KEY.");
     }
   });
 
@@ -121,10 +110,7 @@ auth
   .command("logout")
   .description("Clear stored authentication")
   .action(async () => {
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-    const authDir = join(homeDir, ".owliabot");
-    const store = createAuthStore(authDir);
-    await store.clear();
+    await clearOAuthCredentials();
     log.info("Logged out successfully");
   });
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OwliaBot is a self-hosted, crypto-native AI agent designed for cryptocurrency users. It prioritizes security (local-first, minimal dependencies) and supports Telegram + Discord channels.
 
-**Status**: Project initialized. Core interfaces defined, implementation in progress.
+**Status**: MVP functional. Telegram/Discord channels working, 7 built-in tools, agentic loop operational.
 
 ## Commands
 
@@ -59,6 +59,18 @@ workspace/
 ├── MEMORY.md       # Long-term decisions
 └── memory/         # Episodic memory (diary/, weekly/, archive/)
 ```
+
+## Built-in Tools
+
+| Tool | Level | Description |
+|------|-------|-------------|
+| `echo` | read | Test tool, echoes input |
+| `help` | read | List available tools |
+| `clear_session` | write | Clear conversation history |
+| `memory_search` | read | Search through memory files |
+| `memory_get` | read | Read specific lines from a file |
+| `list_files` | read | List directory contents |
+| `edit_file` | write | Edit file with precise text replacement |
 
 ## Key Interfaces
 

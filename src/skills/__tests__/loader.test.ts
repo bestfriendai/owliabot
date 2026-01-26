@@ -11,20 +11,23 @@ import {
 import { initializeSkills } from "../index.js";
 import { ToolRegistry } from "../../agent/tools/registry.js";
 
-const TEST_SKILLS_DIR = join(process.cwd(), "test-skills-tmp");
+const TEST_BASE_DIR = join(process.cwd(), "test-skills-tmp");
 
 describe("scanSkillsDirectory", () => {
+  let testDir: string;
+
   beforeEach(async () => {
-    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+    testDir = join(TEST_BASE_DIR, `scan-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(testDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true });
   });
 
   it("should find skill directories with package.json", async () => {
     // Create test skill directory
-    const skillDir = join(TEST_SKILLS_DIR, "test-skill");
+    const skillDir = join(testDir, "test-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -35,18 +38,18 @@ describe("scanSkillsDirectory", () => {
       })
     );
 
-    const skills = await scanSkillsDirectory(TEST_SKILLS_DIR);
+    const skills = await scanSkillsDirectory(testDir);
 
     expect(skills).toHaveLength(1);
     expect(skills[0]).toBe(skillDir);
   });
 
   it("should skip directories without package.json", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "invalid-skill");
+    const skillDir = join(testDir, "invalid-skill");
     await mkdir(skillDir);
     // No package.json
 
-    const skills = await scanSkillsDirectory(TEST_SKILLS_DIR);
+    const skills = await scanSkillsDirectory(testDir);
 
     expect(skills).toHaveLength(0);
   });
@@ -59,16 +62,19 @@ describe("scanSkillsDirectory", () => {
 });
 
 describe("parseSkillManifest", () => {
+  let testDir: string;
+
   beforeEach(async () => {
-    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+    testDir = join(TEST_BASE_DIR, `parse-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(testDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true });
   });
 
   it("should parse valid package.json with owliabot field", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "valid-skill");
+    const skillDir = join(testDir, "valid-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -103,7 +109,7 @@ describe("parseSkillManifest", () => {
   });
 
   it("should throw on invalid manifest", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "invalid-skill");
+    const skillDir = join(testDir, "invalid-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -118,16 +124,19 @@ describe("parseSkillManifest", () => {
 });
 
 describe("loadSkillModule", () => {
+  let testDir: string;
+
   beforeEach(async () => {
-    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+    testDir = join(TEST_BASE_DIR, `module-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(testDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true });
   });
 
   it("should load skill module with tools export", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "loadable-skill");
+    const skillDir = join(testDir, "loadable-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -154,7 +163,7 @@ describe("loadSkillModule", () => {
   });
 
   it("should throw if module has no tools export", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "no-tools-skill");
+    const skillDir = join(testDir, "no-tools-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -173,17 +182,20 @@ describe("loadSkillModule", () => {
 });
 
 describe("loadSkills", () => {
+  let testDir: string;
+
   beforeEach(async () => {
-    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+    testDir = join(TEST_BASE_DIR, `load-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(testDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true });
   });
 
   it("should load all valid skills from directory", async () => {
     // Create skill 1
-    const skill1Dir = join(TEST_SKILLS_DIR, "skill-one");
+    const skill1Dir = join(testDir, "skill-one");
     await mkdir(skill1Dir);
     await writeFile(
       join(skill1Dir, "package.json"),
@@ -208,7 +220,7 @@ describe("loadSkills", () => {
     );
 
     // Create skill 2
-    const skill2Dir = join(TEST_SKILLS_DIR, "skill-two");
+    const skill2Dir = join(testDir, "skill-two");
     await mkdir(skill2Dir);
     await writeFile(
       join(skill2Dir, "package.json"),
@@ -232,7 +244,7 @@ describe("loadSkills", () => {
       `export const tools = { tool_b: async () => ({ success: true }) };`
     );
 
-    const result = await loadSkills(TEST_SKILLS_DIR);
+    const result = await loadSkills(testDir);
 
     expect(result.loaded).toHaveLength(2);
     expect(result.failed).toHaveLength(0);
@@ -244,7 +256,7 @@ describe("loadSkills", () => {
 
   it("should report failed skills without crashing", async () => {
     // Create valid skill
-    const validDir = join(TEST_SKILLS_DIR, "valid");
+    const validDir = join(testDir, "valid");
     await mkdir(validDir);
     await writeFile(
       join(validDir, "package.json"),
@@ -257,14 +269,14 @@ describe("loadSkills", () => {
     await writeFile(join(validDir, "index.js"), `export const tools = {};`);
 
     // Create invalid skill (bad manifest)
-    const invalidDir = join(TEST_SKILLS_DIR, "invalid");
+    const invalidDir = join(testDir, "invalid");
     await mkdir(invalidDir);
     await writeFile(
       join(invalidDir, "package.json"),
       JSON.stringify({ name: "invalid" }) // Missing owliabot
     );
 
-    const result = await loadSkills(TEST_SKILLS_DIR);
+    const result = await loadSkills(testDir);
 
     expect(result.loaded).toHaveLength(1);
     expect(result.failed).toHaveLength(1);
@@ -274,16 +286,19 @@ describe("loadSkills", () => {
 });
 
 describe("initializeSkills", () => {
+  let testDir: string;
+
   beforeEach(async () => {
-    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+    testDir = join(TEST_BASE_DIR, `init-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(testDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+    await rm(testDir, { recursive: true, force: true });
   });
 
   it("should register skill tools with the tool registry", async () => {
-    const skillDir = join(TEST_SKILLS_DIR, "my-skill");
+    const skillDir = join(testDir, "my-skill");
     await mkdir(skillDir);
     await writeFile(
       join(skillDir, "package.json"),
@@ -314,7 +329,7 @@ describe("initializeSkills", () => {
     );
 
     const registry = new ToolRegistry();
-    const result = await initializeSkills(TEST_SKILLS_DIR, registry);
+    const result = await initializeSkills(testDir, registry);
 
     expect(result.loaded).toHaveLength(1);
     expect(registry.get("my-skill:greet")).toBeDefined();

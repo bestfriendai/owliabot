@@ -36,6 +36,9 @@ export interface ToolResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  // Added for pi-ai ToolResultMessage format
+  toolCallId?: string;
+  toolName?: string;
 }
 
 export interface ConfirmationRequest {

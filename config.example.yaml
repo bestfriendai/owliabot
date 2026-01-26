@@ -2,7 +2,7 @@
 # Copy to config.yaml and fill in your values
 
 # AI Providers (in priority order)
-# Option 1: API Key (requires developer account)
+# Option 1: API Key from environment variable
 providers:
   - id: anthropic
     model: claude-sonnet-4-5
@@ -13,12 +13,12 @@ providers:
     apiKey: ${OPENAI_API_KEY}
     priority: 2
 
-# Option 2: Claude CLI token (uses Claude subscription, no API key needed)
-# Run 'claude auth' first (Claude CLI), then use:
+# Option 2: OAuth authentication (uses Claude subscription)
+# Run 'owliabot auth setup' first, then:
 # providers:
-#   - id: claude-oauth
+#   - id: anthropic
 #     model: claude-sonnet-4-5
-#     apiKey: unused  # Required by schema but not used
+#     apiKey: oauth  # placeholder, OAuth token will be used
 #     priority: 1
 
 # Telegram (optional)

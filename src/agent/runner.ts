@@ -1,15 +1,33 @@
 /**
- * LLM Runner with failover
+ * LLM Runner using pi-ai
  * @see design.md Section 5.5
  */
 
+import {
+  complete,
+  getEnvApiKey,
+  getOAuthApiKey,
+  type Model,
+  type Context,
+  type AssistantMessage,
+  type Tool,
+  type Api,
+  type TextContent,
+  type ToolCall as PiAiToolCall,
+  type ToolResultMessage,
+  type UserMessage,
+  type Message as PiAiMessage,
+} from "@mariozechner/pi-ai";
 import { createLogger } from "../utils/logger.js";
 import type { Message } from "./session.js";
-import type { ToolDefinition, ToolCall } from "./tools/interface.js";
-import { providerRegistry } from "./providers/index.js";
+import type { ToolDefinition, ToolCall, ToolResult } from "./tools/interface.js";
+import { resolveModel, type ModelConfig } from "./models.js";
+import { loadOAuthCredentials, saveOAuthCredentials } from "../auth/oauth.js";
+import type { TSchema } from "@sinclair/typebox";
 
 const log = createLogger("runner");
 
+// Re-export for backward compatibility
 export interface LLMProvider {
   id: string;
   model: string;
@@ -18,15 +36,11 @@ export interface LLMProvider {
   baseUrl?: string;
 }
 
-export interface LLMRunner {
-  call(messages: Message[], options?: CallOptions): Promise<LLMResponse>;
-}
-
-export interface CallOptions {
+export interface RunnerOptions {
   maxTokens?: number;
   temperature?: number;
   tools?: ToolDefinition[];
-  stream?: boolean;
+  reasoning?: "minimal" | "low" | "medium" | "high";
 }
 
 export interface LLMResponse {
@@ -37,6 +51,8 @@ export interface LLMResponse {
     completionTokens: number;
   };
   provider: string;
+  model: string;
+  truncated?: boolean;
 }
 
 export class HTTPError extends Error {
@@ -56,20 +72,223 @@ export class TimeoutError extends Error {
   }
 }
 
-export function isRetryable(err: unknown): boolean {
-  if (err instanceof HTTPError) {
-    return [429, 500, 502, 503, 504].includes(err.status);
+/**
+ * Resolve API key for a provider
+ * Critical fix #3: Save refreshed OAuth credentials
+ */
+async function resolveApiKey(provider: string): Promise<string> {
+  // Try environment variable first
+  const envKey = getEnvApiKey(provider);
+  if (envKey) {
+    log.debug(`Using env API key for ${provider}`);
+    return envKey;
   }
-  if (err instanceof TimeoutError) {
-    return true;
+
+  // Try OAuth for Anthropic
+  if (provider === "anthropic") {
+    const credentials = await loadOAuthCredentials();
+    if (credentials) {
+      const result = await getOAuthApiKey("anthropic", { anthropic: credentials });
+      if (result) {
+        // Save refreshed credentials if they changed
+        if (result.newCredentials !== credentials) {
+          log.debug("Saving refreshed OAuth credentials");
+          await saveOAuthCredentials(result.newCredentials);
+        }
+        log.debug("Using OAuth API key for anthropic");
+        return result.apiKey;
+      }
+    }
   }
-  return false;
+
+  throw new Error(
+    `No API key found for ${provider}. Set ${provider.toUpperCase()}_API_KEY env var or run 'owliabot auth setup'.`
+  );
 }
 
+/**
+ * Convert internal messages to pi-ai context
+ * Critical fix #1: Properly handle tool results
+ * Important fix #5: Track provider/model for assistant messages
+ */
+function toContext(
+  messages: Message[],
+  tools?: ToolDefinition[],
+  currentModel?: Model<Api>
+): Context {
+  const systemMessage = messages.find((m) => m.role === "system");
+  const chatMessages = messages.filter((m) => m.role !== "system");
+
+  const piAiMessages: PiAiMessage[] = [];
+
+  for (const m of chatMessages) {
+    if (m.role === "user") {
+      // Check if this is a tool result message (has toolResults field)
+      if (m.toolResults && m.toolResults.length > 0) {
+        // Convert to proper ToolResultMessage format
+        for (const tr of m.toolResults) {
+          const toolResultMsg: ToolResultMessage = {
+            role: "toolResult",
+            toolCallId: tr.toolCallId ?? "",
+            toolName: tr.toolName ?? "",
+            content: [
+              {
+                type: "text",
+                text: tr.success
+                  ? JSON.stringify(tr.data, null, 2)
+                  : `Error: ${tr.error}`,
+              },
+            ],
+            isError: !tr.success,
+            timestamp: m.timestamp,
+          };
+          piAiMessages.push(toolResultMsg);
+        }
+      } else {
+        // Regular user message
+        const userMsg: UserMessage = {
+          role: "user",
+          content: m.content,
+          timestamp: m.timestamp,
+        };
+        piAiMessages.push(userMsg);
+      }
+    } else if (m.role === "assistant") {
+      // Assistant message
+      const content: (TextContent | PiAiToolCall)[] = [];
+
+      if (m.content) {
+        content.push({ type: "text", text: m.content });
+      }
+
+      // Add tool calls if present
+      if (m.toolCalls) {
+        for (const tc of m.toolCalls) {
+          content.push({
+            type: "toolCall",
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments as Record<string, unknown>,
+          });
+        }
+      }
+
+      // Use current model info if available, otherwise use defaults
+      const assistantMsg: AssistantMessage = {
+        role: "assistant",
+        content,
+        api: currentModel?.api ?? ("anthropic-messages" as Api),
+        provider: currentModel?.provider ?? "anthropic",
+        model: currentModel?.id ?? "",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop",
+        timestamp: m.timestamp,
+      };
+      piAiMessages.push(assistantMsg);
+    }
+  }
+
+  // Convert tool definitions to pi-ai format
+  const piAiTools: Tool<TSchema>[] | undefined = tools?.map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters as unknown as TSchema,
+  }));
+
+  return {
+    systemPrompt: systemMessage?.content,
+    messages: piAiMessages,
+    tools: piAiTools,
+  };
+}
+
+/**
+ * Convert pi-ai response to internal format
+ */
+function fromAssistantMessage(msg: AssistantMessage): LLMResponse {
+  const textContent = msg.content
+    .filter((c): c is TextContent => c.type === "text")
+    .map((c) => c.text)
+    .join("");
+
+  const toolCalls: ToolCall[] = msg.content
+    .filter((c): c is PiAiToolCall => c.type === "toolCall")
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      arguments: c.arguments,
+    }));
+
+  return {
+    content: textContent,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    usage: {
+      promptTokens: msg.usage.input,
+      completionTokens: msg.usage.output,
+    },
+    provider: msg.provider,
+    model: msg.model,
+    truncated: msg.stopReason === "length",
+  };
+}
+
+/**
+ * Call LLM with a specific model configuration
+ * Important fix #4: Handle all stopReasons
+ * Important fix #6: Pass reasoning option
+ */
+export async function runLLM(
+  modelConfig: ModelConfig,
+  messages: Message[],
+  options?: RunnerOptions
+): Promise<LLMResponse> {
+  const model = resolveModel(modelConfig);
+  const apiKey = await resolveApiKey(model.provider);
+  const context = toContext(messages, options?.tools, model);
+
+  log.info(`Calling ${model.provider}/${model.id}`);
+
+  const response = await complete(model, context, {
+    apiKey,
+    maxTokens: options?.maxTokens ?? 4096,
+    temperature: options?.temperature,
+    reasoning: options?.reasoning,
+  } as Parameters<typeof complete>[2]);
+
+  // Handle different stop reasons
+  switch (response.stopReason) {
+    case "stop":
+    case "toolUse":
+      // Normal completion
+      break;
+    case "length":
+      log.warn("Response truncated due to max tokens limit");
+      break;
+    case "aborted":
+      throw new Error("Request was aborted");
+    case "error":
+      throw new Error(response.errorMessage ?? "LLM error");
+    default:
+      log.warn(`Unknown stop reason: ${response.stopReason}`);
+  }
+
+  return fromAssistantMessage(response);
+}
+
+/**
+ * Call LLM with failover support (for backward compatibility)
+ */
 export async function callWithFailover(
   providers: LLMProvider[],
   messages: Message[],
-  options?: CallOptions
+  options?: RunnerOptions
 ): Promise<LLMResponse> {
   const sorted = [...providers].sort((a, b) => a.priority - b.priority);
 
@@ -78,34 +297,17 @@ export async function callWithFailover(
   for (const provider of sorted) {
     try {
       log.info(`Trying provider: ${provider.id}`);
-      return await callProvider(provider, messages, options);
+      return await runLLM(
+        { provider: provider.id, model: provider.model },
+        messages,
+        options
+      );
     } catch (err) {
       lastError = err as Error;
-      if (isRetryable(err)) {
-        log.warn(
-          `Provider ${provider.id} failed with retryable error, trying next...`
-        );
-        continue;
-      }
-      throw err;
+      log.warn(`Provider ${provider.id} failed: ${lastError.message}`);
+      // Continue to next provider
     }
   }
 
   throw lastError ?? new Error("All providers failed");
-}
-
-async function callProvider(
-  provider: LLMProvider,
-  messages: Message[],
-  options?: CallOptions
-): Promise<LLMResponse> {
-  const callFn = providerRegistry.get(provider.id);
-
-  if (!callFn) {
-    throw new Error(
-      `Unknown provider: ${provider.id}. Available: ${providerRegistry.list().join(", ")}`
-    );
-  }
-
-  return callFn(provider, messages, options);
 }

@@ -29,7 +29,17 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     sections.push(`## User Profile\n${ctx.workspace.user}`);
   }
 
-  // 5. Runtime info
+  // 5. TOOLS.md - Tool usage notes
+  if (ctx.workspace.tools) {
+    sections.push(`## Tool Notes\n${ctx.workspace.tools}`);
+  }
+
+  // 6. MEMORY.md - Long-term memory
+  if (ctx.workspace.memory) {
+    sections.push(`## Memory\n${ctx.workspace.memory}`);
+  }
+
+  // 7. Runtime info
   sections.push(`## Runtime
 - Time: ${new Date().toISOString()}
 - Timezone: ${ctx.timezone}
@@ -37,7 +47,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - Model: ${ctx.model}
 `);
 
-  // 6. Heartbeat mode
+  // 8. Heartbeat mode
   if (ctx.isHeartbeat && ctx.workspace.heartbeat) {
     sections.push(`## Heartbeat
 Read the following checklist and execute it:

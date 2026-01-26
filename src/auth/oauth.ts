@@ -1,204 +1,152 @@
 /**
- * OAuth flow for Claude subscription
+ * OAuth flow for Claude subscription using pi-ai
  * @see design.md DR-007
  */
 
-import { createServer } from "node:http";
-import { URL } from "node:url";
+import {
+  loginAnthropic,
+  refreshAnthropicToken,
+  type OAuthCredentials,
+} from "@mariozechner/pi-ai";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import open from "open";
+import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
-import type { AuthToken, AuthStore } from "./store.js";
 
 const log = createLogger("oauth");
 
-// Claude OAuth endpoints (same as Claude CLI)
-const OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
-const OAUTH_TOKEN_URL = "https://claude.ai/oauth/token";
-const CLIENT_ID = "owliabot";
-const REDIRECT_PORT = 19275;
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
+const AUTH_FILE = join(
+  process.env.HOME ?? process.env.USERPROFILE ?? ".",
+  ".owliabot",
+  "auth.json"
+);
 
-export interface OAuthOptions {
-  store: AuthStore;
-}
+/**
+ * Start OAuth flow for Anthropic
+ */
+export async function startOAuthFlow(): Promise<OAuthCredentials> {
+  log.info("Starting Anthropic OAuth flow...");
 
-export async function startOAuthFlow(options: OAuthOptions): Promise<AuthToken> {
-  const { store } = options;
-
-  // Generate state for CSRF protection
-  const state = generateRandomString(32);
-
-  // Start local server to receive callback
-  const code = await waitForCallback(state);
-
-  // Exchange code for token
-  const token = await exchangeCodeForToken(code);
-
-  // Save token
-  await store.save(token);
-
-  return token;
-}
-
-async function waitForCallback(expectedState: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const server = createServer((req, res) => {
-      const url = new URL(req.url ?? "", `http://localhost:${REDIRECT_PORT}`);
-
-      if (url.pathname !== "/callback") {
-        res.writeHead(404);
-        res.end("Not found");
-        return;
-      }
-
-      const code = url.searchParams.get("code");
-      const state = url.searchParams.get("state");
-      const error = url.searchParams.get("error");
-
-      if (error) {
-        res.writeHead(400);
-        res.end(`Authentication failed: ${error}`);
-        server.close();
-        reject(new Error(`OAuth error: ${error}`));
-        return;
-      }
-
-      if (state !== expectedState) {
-        res.writeHead(400);
-        res.end("Invalid state parameter");
-        server.close();
-        reject(new Error("Invalid OAuth state"));
-        return;
-      }
-
-      if (!code) {
-        res.writeHead(400);
-        res.end("Missing authorization code");
-        server.close();
-        reject(new Error("Missing authorization code"));
-        return;
-      }
-
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(`
-        <html>
-          <body style="font-family: system-ui; text-align: center; padding: 50px;">
-            <h1>Authentication Successful!</h1>
-            <p>You can close this window and return to the terminal.</p>
-          </body>
-        </html>
-      `);
-
-      server.close();
-      resolve(code);
-    });
-
-    server.listen(REDIRECT_PORT, () => {
-      log.info(`OAuth callback server listening on port ${REDIRECT_PORT}`);
+  const credentials = await loginAnthropic(
+    // Open browser with auth URL
+    (url: string) => {
       log.info("Opening browser for authentication...");
-
-      const authUrl = new URL(OAUTH_AUTHORIZE_URL);
-      authUrl.searchParams.set("client_id", CLIENT_ID);
-      authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
-      authUrl.searchParams.set("response_type", "code");
-      authUrl.searchParams.set("state", expectedState);
-      authUrl.searchParams.set("scope", "messages:write");
-
-      open(authUrl.toString());
-    });
-
-    // Timeout after 5 minutes
-    setTimeout(() => {
-      server.close();
-      reject(new Error("OAuth timeout - no callback received"));
-    }, 5 * 60 * 1000);
-  });
-}
-
-async function exchangeCodeForToken(code: string): Promise<AuthToken> {
-  const response = await fetch(OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
+      log.info(`If browser doesn't open, visit: ${url}`);
+      open(url);
     },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID,
-    }),
-  });
+    // Prompt for authorization code
+    async () => {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} ${text}`);
-  }
+      return new Promise<string>((resolve) => {
+        rl.question("Paste authorization code: ", (code) => {
+          rl.close();
+          resolve(code.trim());
+        });
+      });
+    }
+  );
 
-  const data = (await response.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-    token_type: string;
-  };
+  // Save credentials
+  await saveOAuthCredentials(credentials);
 
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-    tokenType: data.token_type,
-  };
+  log.info("Authentication successful!");
+  return credentials;
 }
 
-export async function refreshToken(
-  token: AuthToken,
-  store: AuthStore
-): Promise<AuthToken> {
+/**
+ * Refresh OAuth token
+ */
+export async function refreshOAuthCredentials(
+  credentials: OAuthCredentials
+): Promise<OAuthCredentials> {
   log.info("Refreshing OAuth token...");
 
-  const response = await fetch(OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: token.refreshToken,
-      client_id: CLIENT_ID,
-    }),
-  });
+  const newCredentials = await refreshAnthropicToken(credentials.refresh);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Token refresh failed: ${response.status} ${text}`);
-  }
+  // Save new credentials
+  await saveOAuthCredentials(newCredentials);
 
-  const data = (await response.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-    token_type: string;
-  };
-
-  const newToken: AuthToken = {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-    tokenType: data.token_type,
-  };
-
-  await store.save(newToken);
   log.info("Token refreshed successfully");
-
-  return newToken;
+  return newCredentials;
 }
 
-function generateRandomString(length: number): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  const randomValues = new Uint8Array(length);
-  crypto.getRandomValues(randomValues);
-  for (let i = 0; i < length; i++) {
-    result += chars[randomValues[i] % chars.length];
+/**
+ * Load saved OAuth credentials
+ */
+export async function loadOAuthCredentials(): Promise<OAuthCredentials | null> {
+  try {
+    const content = await readFile(AUTH_FILE, "utf-8");
+    const data = JSON.parse(content) as OAuthCredentials;
+
+    // Check if expired
+    if (Date.now() >= data.expires) {
+      log.debug("OAuth token expired, needs refresh");
+      // Auto-refresh
+      try {
+        return await refreshOAuthCredentials(data);
+      } catch (err) {
+        log.warn("Token refresh failed, need re-authentication");
+        return null;
+      }
+    }
+
+    return data;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw err;
   }
-  return result;
+}
+
+/**
+ * Save OAuth credentials
+ */
+export async function saveOAuthCredentials(
+  credentials: OAuthCredentials
+): Promise<void> {
+  await mkdir(dirname(AUTH_FILE), { recursive: true });
+  await writeFile(AUTH_FILE, JSON.stringify(credentials, null, 2));
+  log.debug(`Credentials saved to ${AUTH_FILE}`);
+}
+
+/**
+ * Clear saved OAuth credentials
+ */
+export async function clearOAuthCredentials(): Promise<void> {
+  try {
+    const { unlink } = await import("node:fs/promises");
+    await unlink(AUTH_FILE);
+    log.info("Credentials cleared");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Check OAuth status
+ */
+export async function getOAuthStatus(): Promise<{
+  authenticated: boolean;
+  expiresAt?: number;
+  email?: string;
+}> {
+  const credentials = await loadOAuthCredentials();
+
+  if (!credentials) {
+    return { authenticated: false };
+  }
+
+  return {
+    authenticated: true,
+    expiresAt: credentials.expires,
+    email: credentials.email,
+  };
 }

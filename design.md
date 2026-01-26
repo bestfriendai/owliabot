@@ -418,6 +418,52 @@ function getSessionKey(ctx: MsgContext): SessionKey {
 }
 ```
 
+#### Telegram 消息格式化
+
+Telegram 支持的 HTML 标签有限：`<b>`, `<i>`, `<code>`, `<pre>`, `<a>`, `<u>`, `<s>`
+
+**不支持：** headers (`#`), lists (`-`), tables
+
+**实现策略：** Markdown → Telegram HTML 转换
+
+```typescript
+// src/channels/telegram/index.ts
+
+function markdownToTelegramHtml(text: string): string {
+  let html = text;
+  
+  // Escape HTML entities
+  html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  
+  // Headers -> Bold
+  html = html.replace(/^### (.+)$/gm, "\n<b>$1</b>");
+  html = html.replace(/^## (.+)$/gm, "\n<b>$1</b>");
+  html = html.replace(/^# (.+)$/gm, "\n<b>$1</b>\n");
+  
+  // Horizontal rules
+  html = html.replace(/^---+$/gm, "───────────");
+  
+  // Code blocks & inline code
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre>$2</pre>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  
+  // Bold, Italic, Strikethrough
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>");
+  html = html.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  
+  // List items -> bullet
+  html = html.replace(/^- (.+)$/gm, "• $1");
+  
+  return html.trim();
+}
+```
+
+**Fallback：** 如果 HTML 解析失败，自动降级为纯文本发送。
+
 ### 5.2 Tool 接口
 
 ```typescript
@@ -645,42 +691,39 @@ export interface SearchOptions {
 }
 ```
 
-### 5.5 LLM Runner 接口
+### 5.5 LLM Runner 接口（使用 pi-ai）
 
-#### Failover 策略
+#### 决策：使用 @mariozechner/pi-ai
 
-| 阶段 | 方案 | 说明 |
-|------|------|------|
-| **MVP** | 简单线性 fallback | Provider A 失败就试 B |
-| **后续** | 智能路由 | 根据错误类型决定重试/切换 |
+**理由：**
+- 多 provider 支持开箱即用（Anthropic, OpenAI, Google, Bedrock, Mistral）
+- 统一的 streaming API
+- Tool calling 已经处理好
+- OAuth 认证和刷新自动处理
+- 与 Clawdbot 使用相同的底层库
 
-**错误分类：**
+**pi-ai 依赖：**
+```
+@anthropic-ai/sdk     → Anthropic Claude
+openai                → OpenAI / OpenRouter  
+@google/genai         → Gemini
+@aws-sdk/...          → Bedrock
+@mistralai/...        → Mistral
+```
 
-| 错误类型 | 处理 |
-|----------|------|
-| 429 (Rate Limit) | 切换下一个 provider |
-| 5xx (服务器错误) | 切换下一个 provider |
-| Timeout | 切换下一个 provider |
-| 401/403 (Auth) | 直接抛出，不重试 |
-| 400 (Bad Request) | 直接抛出，不重试 |
-
-**配置示例：**
+#### 配置示例
 
 ```yaml
 # config.yaml
-providers:
-  - id: anthropic
-    model: claude-sonnet-4-5
-    apiKey: ${ANTHROPIC_API_KEY}
-    priority: 1
-  - id: openai
-    model: gpt-4o
-    apiKey: ${OPENAI_API_KEY}
-    priority: 2
-  - id: openrouter
-    model: anthropic/claude-3.5-sonnet
-    apiKey: ${OPENROUTER_API_KEY}
-    priority: 3
+model:
+  provider: anthropic
+  id: claude-sonnet-4-5
+  
+# 或使用完整的 model id
+model: anthropic/claude-sonnet-4-5
+
+# OAuth 认证（通过 owliabot auth setup）
+# Token 保存在 ~/.owliabot/auth.json
 ```
 
 #### 接口定义
@@ -688,128 +731,191 @@ providers:
 ```typescript
 // src/agent/runner.ts
 
-export interface LLMProvider {
-  id: string;
-  model: string;
-  apiKey: string;
-  priority: number;
-  baseUrl?: string;  // 自定义 endpoint
-}
+import { stream, complete, getEnvApiKey } from "@mariozechner/pi-ai";
+import { getOAuthApiKey, loginAnthropic, refreshAnthropicToken } from "@mariozechner/pi-ai/utils/oauth";
+import type { Model, Context, AssistantMessage } from "@mariozechner/pi-ai";
 
-export interface LLMRunner {
-  // 调用 LLM，自动 failover
-  call(messages: Message[], options?: CallOptions): Promise<LLMResponse>;
-}
-
-export interface CallOptions {
+export interface RunnerOptions {
+  model: Model;
   maxTokens?: number;
   temperature?: number;
   tools?: ToolDefinition[];
-  stream?: boolean;
+  reasoning?: "minimal" | "low" | "medium" | "high";
 }
 
-export interface LLMResponse {
-  content: string;
-  toolCalls?: ToolCall[];
-  usage: {
-    promptTokens: number;
-    completionTokens: number;
-  };
-  provider: string;  // 实际使用的 provider
-}
-
-// Failover 实现
-async function callWithFailover(
-  providers: LLMProvider[],
-  messages: Message[],
-  options?: CallOptions,
-): Promise<LLMResponse> {
-  const sorted = providers.sort((a, b) => a.priority - b.priority);
+/**
+ * 调用 LLM，返回完整响应
+ */
+export async function runLLM(
+  context: Context,
+  options: RunnerOptions
+): Promise<AssistantMessage> {
+  const apiKey = await resolveApiKey(options.model.provider);
   
-  for (const provider of sorted) {
-    try {
-      return await callProvider(provider, messages, options);
-    } catch (err) {
-      if (isRetryable(err)) {
-        console.warn(`Provider ${provider.id} failed, trying next...`);
-        continue;
+  return complete(options.model, context, {
+    apiKey,
+    maxTokens: options.maxTokens ?? 4096,
+    temperature: options.temperature,
+    reasoning: options.reasoning,
+  });
+}
+
+/**
+ * 调用 LLM，返回 streaming 响应
+ */
+export function streamLLM(
+  context: Context,
+  options: RunnerOptions
+): AssistantMessageEventStream {
+  const apiKey = await resolveApiKey(options.model.provider);
+  
+  return stream(options.model, context, {
+    apiKey,
+    maxTokens: options.maxTokens ?? 4096,
+    temperature: options.temperature,
+    reasoning: options.reasoning,
+  });
+}
+
+/**
+ * 解析 API Key（支持 OAuth token）
+ */
+async function resolveApiKey(provider: string): Promise<string> {
+  // 1. 检查环境变量
+  const envKey = getEnvApiKey(provider);
+  if (envKey) return envKey;
+  
+  // 2. 检查 OAuth credentials
+  if (provider === "anthropic") {
+    const credentials = await loadOAuthCredentials();
+    if (credentials) {
+      const result = await getOAuthApiKey("anthropic", { anthropic: credentials });
+      if (result) {
+        // 如果 token 被刷新，保存新的 credentials
+        if (result.newCredentials !== credentials) {
+          await saveOAuthCredentials(result.newCredentials);
+        }
+        return result.apiKey;
       }
-      throw err;
     }
   }
   
-  throw new Error("All providers failed");
-}
-
-function isRetryable(err: unknown): boolean {
-  if (err instanceof HTTPError) {
-    return [429, 500, 502, 503, 504].includes(err.status);
-  }
-  if (err instanceof TimeoutError) {
-    return true;
-  }
-  return false;
+  throw new Error(`No API key for provider: ${provider}. Run 'owliabot auth setup'.`);
 }
 ```
 
-#### Provider 注册制
-
-为了方便扩展新的 LLM provider，使用注册制而非硬编码 switch：
+#### Model 解析
 
 ```typescript
-// src/agent/providers/registry.ts
+// src/agent/models.ts
 
-type ProviderFn = (
-  config: { apiKey: string; model: string; baseUrl?: string },
-  messages: Message[],
-  options?: CallOptions
-) => Promise<LLMResponse>;
+import { ANTHROPIC_MODELS, OPENAI_MODELS, GOOGLE_MODELS } from "@mariozechner/pi-ai";
 
-class ProviderRegistry {
-  private providers = new Map<string, ProviderFn>();
-
-  register(id: string, fn: ProviderFn): void {
-    this.providers.set(id, fn);
+export function resolveModel(modelId: string): Model {
+  // 支持 provider/model 格式
+  if (modelId.includes("/")) {
+    const [provider, id] = modelId.split("/", 2);
+    return getModelByProviderAndId(provider, id);
   }
-
-  get(id: string): ProviderFn | undefined {
-    return this.providers.get(id);
+  
+  // 支持别名
+  const aliases: Record<string, string> = {
+    "sonnet": "anthropic/claude-sonnet-4-5",
+    "opus": "anthropic/claude-opus-4-5",
+    "gpt-4o": "openai/gpt-4o",
+    "gemini": "google/gemini-2.5-pro",
+  };
+  
+  if (aliases[modelId]) {
+    return resolveModel(aliases[modelId]);
   }
-
-  has(id: string): boolean {
-    return this.providers.has(id);
-  }
+  
+  // 默认 Anthropic
+  return ANTHROPIC_MODELS[modelId] ?? ANTHROPIC_MODELS["claude-sonnet-4-5"];
 }
-
-export const providerRegistry = new ProviderRegistry();
-
-// 初始化时注册
-import { callAnthropic } from "./anthropic.js";
-import { callOpenAI } from "./openai.js";
-import { callOpenRouter } from "./openrouter.js";
-
-providerRegistry.register("anthropic", callAnthropic);
-providerRegistry.register("openai", callOpenAI);
-providerRegistry.register("openrouter", callOpenRouter);
 ```
 
-**使用方式：**
+#### Tool Calling
+
+pi-ai 内置了 tool calling 支持：
 
 ```typescript
-// runner.ts
-async function callProvider(provider: LLMProvider, ...): Promise<LLMResponse> {
-  const fn = providerRegistry.get(provider.id);
-  if (!fn) {
-    throw new Error(`Unknown provider: ${provider.id}`);
+// 使用 pi-ai 的 tool 格式
+const tools = [
+  {
+    name: "get_price",
+    description: "Get current price for a token",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Token symbol" }
+      },
+      required: ["symbol"]
+    }
   }
-  return fn({ apiKey: provider.apiKey, model: provider.model }, messages, options);
+];
+
+const result = await complete(model, context, {
+  apiKey,
+  tools,
+});
+
+// 检查 tool calls
+if (result.toolCalls) {
+  for (const call of result.toolCalls) {
+    const toolResult = await executeTool(call.name, call.input);
+    // 继续对话...
+  }
 }
 ```
 
-**新增 Provider 步骤：**
-1. 创建 `src/agent/providers/xxx.ts`
-2. 实现 `callXxx()` 函数
-3. 在 registry 中注册 `providerRegistry.register("xxx", callXxx)`
+#### OAuth 集成
+
+pi-ai 提供了完整的 OAuth 支持：
+
+```typescript
+// src/auth/anthropic.ts
+
+import { loginAnthropic, refreshAnthropicToken } from "@mariozechner/pi-ai/utils/oauth";
+
+export async function setupAuth(): Promise<void> {
+  const credentials = await loginAnthropic(
+    // 打开浏览器
+    (url) => {
+      console.log("Opening browser:", url);
+      open(url);
+    },
+    // 等待用户输入授权码
+    async () => {
+      return await promptForCode("Paste authorization code: ");
+    }
+  );
+  
+  await saveOAuthCredentials(credentials);
+}
+
+export async function refreshAuth(credentials: OAuthCredentials): Promise<OAuthCredentials> {
+  return refreshAnthropicToken(credentials.refresh);
+}
+```
+
+#### 简化的目录结构
+
+使用 pi-ai 后，可以删除：
+- `src/agent/providers/` 整个目录（pi-ai 内置）
+- `src/agent/runner.ts` 大幅简化
+
+```
+src/agent/
+├── runner.ts         # 简化版，调用 pi-ai
+├── models.ts         # Model 解析和别名
+├── session.ts        # Session 管理（不变）
+├── system-prompt.ts  # System Prompt 构建（不变）
+└── tools/
+    ├── interface.ts  # Tool 接口（不变）
+    ├── registry.ts   # Tool 注册（不变）
+    └── executor.ts   # Tool 执行（不变）
+```
 
 ### 5.6 Session 接口
 
@@ -1180,22 +1286,28 @@ If nothing needs attention, reply: HEARTBEAT_OK
 | 类别 | 依赖 | 数量 | 备注 |
 |------|------|------|------|
 | CLI/Config | `commander`, `zod`, `yaml` | 3 | 必须 |
-| HTTP/日志 | `undici`, `tslog` | 2 | 必须 |
+| HTTP/日志 | `tslog` | 1 | 必须 |
 | 定时任务 | `croner` | 1 | 必须 |
 | Channels | `grammy`, `discord.js` | 2 | 必须 |
+| **LLM** | `@mariozechner/pi-ai` | 1 | 核心（带 11 个子依赖） |
 | Crypto | `viem` | 1 | Phase 2+ |
-| WebSocket | `ws` | 0-1 | App Bridge 可能需要 |
-| LLM SDK | - | 0 | 用 undici 直接调 |
 | 文件遍历 | - | 0 | Node 22 自带 fs.glob |
 | 环境变量 | - | 0 | Node 20 自带 --env-file |
-| **小计** | | **9-10** | |
+| **小计** | | **9** | |
 
-**预算余量：~20 个**（可用于 4337 SDK、WalletConnect 等）
+**pi-ai 带来的子依赖（自动安装）：**
+- `@anthropic-ai/sdk` - Anthropic Claude
+- `openai` - OpenAI / OpenRouter
+- `@google/genai` - Google Gemini
+- `@aws-sdk/client-bedrock-runtime` - AWS Bedrock
+- `@mistralai/mistralai` - Mistral
+- 其他工具库
 
 ### 7.2 核心依赖详情
 
 | 依赖 | 用途 | 可替代性 |
 |------|------|----------|
+| `@mariozechner/pi-ai` | LLM 调用 | 无（核心） |
 | `commander` | CLI | 无 |
 | `zod` | Schema 验证 | 可选 TypeBox |
 | `grammy` | Telegram Bot | 无 |
@@ -1203,15 +1315,21 @@ If nothing needs attention, reply: HEARTBEAT_OK
 | `croner` | Cron 调度 | 可选 node-cron |
 | `tslog` | 日志 | 可选 pino |
 | `yaml` | 配置解析 | 无 |
-| `undici` | HTTP 客户端 | 可选 node 原生 |
 
 ### 7.3 AI Provider 策略
 
 | 方案 | 依赖 | 说明 |
 |------|------|------|
-| **推荐** | 无（用 undici） | 直接调用 HTTP API，零额外依赖 |
-| 备选 | `@anthropic-ai/sdk` | 类型安全，但增加依赖 |
-| 备选 | `openai` | 支持 OpenAI 兼容 API |
+| **采用** | `@mariozechner/pi-ai` | 统一 API，多 provider 支持，OAuth 内置 |
+
+**pi-ai 支持的 Provider：**
+- Anthropic (Claude) ✅ OAuth 支持
+- OpenAI ✅
+- Google Gemini ✅ OAuth 支持
+- AWS Bedrock ✅
+- Mistral ✅
+- OpenRouter ✅
+- GitHub Copilot ✅ OAuth 支持
 
 ### 7.4 Crypto 依赖（按需引入）
 
@@ -1275,6 +1393,18 @@ If nothing needs attention, reply: HEARTBEAT_OK
 - [ ] 智能合约钱包集成 (Tier 3)
 - [ ] 部署脚本
 - [ ] 文档
+
+### Phase 7: Skills 系统
+
+通过 Skills 扩展 OwliaBot 功能，无需修改核心代码。
+
+**核心设计决策：**
+- 执行方式：JS Module (dynamic import)，简单高效
+- 隔离方式：Docker 双容器架构，Skill 无法访问私钥
+- 通信方式：localhost HTTP + JSON-RPC
+- 认证方案：分阶段（本地信任 → 仓库信任 → 代码签名）
+
+**详细设计：** `docs/architecture/skills-system.md`
 
 ---
 
@@ -1468,185 +1598,283 @@ notifications:
 
 **选项:**
 1. Console API Key - 用户从 console.anthropic.com 获取
-2. OAuth Setup Token - 通过 OAuth 流程，使用 Claude 订阅额度（需要申请 OAuth client_id）
+2. OAuth Setup Token - 自己实现 OAuth 流程（需要申请 client_id）
 3. 复用 Clawdbot Auth - 读取 clawdbot 的 auth-profiles.json
-4. 复用 Claude CLI Token - 读取 Claude CLI 的 credentials
+4. 复用 Claude CLI Token - 读取 Claude CLI 的 credentials ❌
+5. 使用 pi-ai 的 OAuth 参数 - 复用 Clawdbot/pi-ai 的 OAuth client_id 和 scopes
 
-**决策:** 选择 **4. 复用 Claude CLI Token**
+**决策:** 选择 **5. 使用 pi-ai 的 OAuth 参数**
 
 **理由:**
-- Claude CLI 有 Anthropic 官方的 OAuth client_id，不需要自己申请
+- Claude CLI token 有 `user:sessions:claude_code` scope 限制，**只能用于 Claude Code**
+- pi-ai（Clawdbot 底层库）的 OAuth 使用不同的 scopes，可用于普通 API 请求
 - 使用 Claude 订阅额度（Pro/Max），无需开发者账户
-- 用户只需运行 `claude auth` 一次（Claude CLI 命令）
-- Clawdbot 也是用这个方式
+- 与 Clawdbot 完全相同的认证机制
 
-**Claude CLI Token 位置:**
+**为什么 Claude CLI token 不能用：**
 
 ```
-~/.claude/.credentials.json
+Claude CLI scopes:  user:inference, user:sessions:claude_code, ...
+pi-ai scopes:       org:create_api_key, user:profile, user:inference
+
+API 返回错误：
+"This credential is only authorized for use with Claude Code 
+and cannot be used for other API requests."
 ```
 
-**Token 格式:**
+**pi-ai OAuth 参数（从 Clawdbot 提取）：**
 
-```json
-{
-  "claudeAiOauth": {
-    "accessToken": "sk-ant-oat01-...",
-    "refreshToken": "sk-ant-ort01-...",
-    "expiresAt": 1769377803089,
-    "scopes": ["user:inference", "user:profile", ...],
-    "subscriptionType": "max",
-    "rateLimitTier": "default_claude_max_20x"
+```typescript
+// src/auth/oauth.ts
+
+// pi-ai 的 client_id（base64 解码）
+const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+
+// OAuth URLs
+const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
+const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
+const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
+
+// 关键：这些 scopes 可以用于普通 API 请求
+const SCOPES = "org:create_api_key user:profile user:inference";
+```
+
+**OAuth Flow 实现：**
+
+```typescript
+// src/auth/oauth.ts
+
+import { generatePKCE } from "./pkce.js";
+
+export async function loginAnthropic(
+  onAuthUrl: (url: string) => void,
+  onPromptCode: () => Promise<string>
+): Promise<AuthToken> {
+  const { verifier, challenge } = await generatePKCE();
+
+  // Build authorization URL
+  const authParams = new URLSearchParams({
+    code: "true",
+    client_id: CLIENT_ID,
+    response_type: "code",
+    redirect_uri: REDIRECT_URI,
+    scope: SCOPES,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: verifier,
+  });
+
+  const authUrl = `${AUTHORIZE_URL}?${authParams.toString()}`;
+  onAuthUrl(authUrl);
+
+  // Wait for user to paste authorization code (format: code#state)
+  const authCode = await onPromptCode();
+  const [code, state] = authCode.split("#");
+
+  // Exchange code for tokens
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      client_id: CLIENT_ID,
+      code,
+      state,
+      redirect_uri: REDIRECT_URI,
+      code_verifier: verifier,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token exchange failed: ${await response.text()}`);
   }
+
+  const data = await response.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+    tokenType: "Bearer",
+  };
+}
+
+export async function refreshAnthropicToken(refreshToken: string): Promise<AuthToken> {
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      client_id: CLIENT_ID,
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token refresh failed: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+    tokenType: "Bearer",
+  };
 }
 ```
 
-**实现:**
-
-1. `src/auth/claude-cli.ts` - 读取 Claude CLI token：
+**PKCE 实现：**
 
 ```typescript
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { AuthToken } from "./store.js";
+// src/auth/pkce.ts
 
-const CLAUDE_CLI_CREDENTIALS_PATH = join(
-  process.env.HOME ?? "",
-  ".claude",
-  ".credentials.json"
-);
-
-export function loadClaudeCliToken(): AuthToken | null {
-  try {
-    const content = readFileSync(CLAUDE_CLI_CREDENTIALS_PATH, "utf-8");
-    const data = JSON.parse(content);
-    const oauth = data.claudeAiOauth;
-    
-    if (!oauth?.accessToken) return null;
-    
-    return {
-      accessToken: oauth.accessToken,
-      refreshToken: oauth.refreshToken,
-      expiresAt: oauth.expiresAt,
-      tokenType: "Bearer",
-    };
-  } catch {
-    return null;
-  }
+export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = generateRandomString(43);
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const challenge = base64UrlEncode(digest);
+  return { verifier, challenge };
 }
 
-export function isClaudeCliAuthenticated(): boolean {
-  const token = loadClaudeCliToken();
-  return token !== null && Date.now() < token.expiresAt;
+function generateRandomString(length: number): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const randomValues = new Uint8Array(length);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (v) => chars[v % chars.length]).join("");
+}
+
+function base64UrlEncode(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 ```
 
-2. 修改 `src/agent/providers/claude-oauth.ts` 的 `getValidToken()`：
+**API 调用：**
 
 ```typescript
-import { loadClaudeCliToken } from "../../auth/claude-cli.js";
+// src/agent/providers/claude-oauth.ts
 
-async function getValidToken(): Promise<AuthToken> {
-  // 优先用 OwliaBot 自己的 token
-  const store = getAuthStore();
-  let token = await store.get();
-  
-  // Fallback 到 Claude CLI token
-  if (!token) {
-    token = loadClaudeCliToken();
-    if (!token) {
-      throw new Error(
-        "Not authenticated. Run 'claude auth' (Claude CLI) first."
-      );
-    }
-  }
-  
-  if (Date.now() >= token.expiresAt) {
-    throw new Error(
-      "Token expired. Run 'claude auth' to re-authenticate."
-    );
-  }
-  
-  return token;
-}
-```
-
-3. 更新 `owliabot auth status` 命令，显示 Claude CLI token 状态：
-
-```typescript
-auth.command("status").action(async () => {
-  // 检查 OwliaBot 自己的 token
-  const ownToken = await store.get();
-  
-  // 检查 Claude CLI token
-  const cliToken = loadClaudeCliToken();
-  
-  if (ownToken) {
-    log.info("Using OwliaBot auth");
-    // ...
-  } else if (cliToken) {
-    log.info("Using Claude CLI auth");
-    log.info(`Expires at: ${new Date(cliToken.expiresAt).toISOString()}`);
-  } else {
-    log.info("Not authenticated. Run 'claude auth' first.");
-  }
-});
-```
-
-**API Endpoint:**
-
-Claude CLI token 使用 `api.anthropic.com`（不是 `api.claude.ai`）：
-
-```typescript
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 
-// Headers
+// 使用 Bearer token + anthropic-beta header
 headers: {
   "Content-Type": "application/json",
-  "x-api-key": token.accessToken,
+  "Authorization": `Bearer ${token.accessToken}`,
   "anthropic-version": "2023-06-01",
+  "anthropic-beta": "oauth-2025-04-20",
 }
 ```
 
-**用户流程:**
+**CLI 命令：**
 
-1. 安装 Claude CLI: `npm install -g @anthropic-ai/claude-cli`
-2. 登录: `claude auth`（打开浏览器授权）
-3. 启动 OwliaBot: `owliabot start`（自动读取 Claude CLI token）
+```bash
+# 交互式设置（打开浏览器授权）
+owliabot auth setup
+# 1. 打开浏览器 → claude.ai/oauth/authorize
+# 2. 用户登录并授权
+# 3. 复制授权码（格式：code#state）粘贴到终端
+# 4. 保存 token 到 ~/.owliabot/auth.json
 
-**可选：保留 `owliabot auth setup`**
+# 查看状态
+owliabot auth status
 
-如果后续申请了 OAuth client_id，可以启用自己的 OAuth flow，优先级高于 Claude CLI token。
+# 登出
+owliabot auth logout
+```
+
+**用户流程：**
+
+1. 运行 `owliabot auth setup`
+2. 浏览器打开 Claude.ai 授权页面
+3. 登录并授权
+4. 复制页面上的授权码，粘贴到终端
+5. 启动 `owliabot start`
 
 ---
 
-#### DR-008: Provider 注册制
+#### DR-008: LLM 调用层
 
 **日期:** 2026-01-26
 
-**问题:** 如何方便地扩展新的 LLM provider？
+**问题:** 如何支持多个 LLM provider？
 
 **选项:**
-1. 硬编码 switch - 当前实现，每次加 provider 改 runner.ts
-2. 注册制 - Provider 自注册，runner 通过 registry 查找
+1. 硬编码 switch - 每次加 provider 改 runner.ts
+2. 自己的注册制 - Provider 自注册，runner 通过 registry 查找
+3. 使用 pi-ai 库 - 统一 API，多 provider 支持
 
-**决策:** 选择 **2. 注册制**
+**决策:** 选择 **3. 使用 pi-ai 库**
 
 **理由:**
-- 解耦 runner 和具体 provider 实现
-- 新增 provider 无需改 runner 代码
-- 方便后续支持 OpenAI、OpenRouter、本地模型等
+- 多 provider 支持开箱即用（Anthropic, OpenAI, Google, Bedrock, Mistral）
+- 统一的 streaming API
+- Tool calling 已经处理好
+- OAuth 认证和刷新自动处理
+- 与 Clawdbot 使用相同的底层库
+- 减少自己维护的代码量
 
 **实现:**
 ```typescript
-// 注册
-providerRegistry.register("anthropic", callAnthropic);
-providerRegistry.register("openai", callOpenAI);
+import { stream, complete } from "@mariozechner/pi-ai";
+import { getOAuthApiKey } from "@mariozechner/pi-ai/utils/oauth";
 
-// 使用
-const fn = providerRegistry.get(provider.id);
-return fn(config, messages, options);
+// 调用任意 provider
+const result = await complete(model, context, { apiKey });
 ```
+
+---
+
+#### DR-009: Telegram 消息格式化
+
+**日期:** 2026-01-26
+
+**问题:** LLM 输出的 Markdown 在 Telegram 显示为原始文本
+
+**选项:**
+1. 使用 `parse_mode: "Markdown"` - Telegram 原生 Markdown（语法严格，易出错）
+2. 使用 `parse_mode: "MarkdownV2"` - 需要大量转义
+3. 转换为 HTML - Telegram HTML 支持更稳定
+
+**决策:** 选择 **3. 转换为 HTML**
+
+**理由:**
+- Telegram 原生 Markdown 对特殊字符非常敏感，稍有不慎就解析失败
+- HTML 解析更宽容，失败率低
+- 可以自定义转换规则（如 `##` → `<b>`，`-` → `•`）
+
+**实现:**
+- `markdownToTelegramHtml()` 函数处理转换
+- 解析失败时 fallback 到纯文本
+- 详见 Section 5.1 "Telegram 消息格式化"
+
+---
+
+#### DR-010: Workspace 路径解析
+
+**日期:** 2026-01-26
+
+**问题:** `config.yaml` 中的 `workspace: ./workspace` 相对路径在不同 cwd 下行为不一致
+
+**决策:** 在 config loader 中将 workspace 路径解析为相对于 config 文件的绝对路径
+
+**实现:**
+```typescript
+// src/config/loader.ts
+import { resolve, dirname } from "node:path";
+
+// 加载 config 后
+const configDir = dirname(resolve(path));
+config.workspace = resolve(configDir, config.workspace);
+```
+
+**效果:**
+- `./workspace` 始终相对于 `config.yaml` 所在目录
+- 无论从哪个目录运行 `owliabot start`，都能正确找到 workspace
 
 ---
 

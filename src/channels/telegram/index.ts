@@ -10,6 +10,55 @@ import type {
 
 const log = createLogger("telegram");
 
+/**
+ * Convert markdown to Telegram HTML
+ * Telegram supports: <b>, <i>, <code>, <pre>, <a>, <u>, <s>
+ * Does NOT support: headers, lists, tables
+ */
+function markdownToTelegramHtml(text: string): string {
+  let html = text;
+  
+  // Escape HTML entities first
+  html = html
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  
+  // Headers (## Title) -> Bold with newline
+  html = html.replace(/^### (.+)$/gm, "\n<b>$1</b>");
+  html = html.replace(/^## (.+)$/gm, "\n<b>$1</b>");
+  html = html.replace(/^# (.+)$/gm, "\n<b>$1</b>\n");
+  
+  // Horizontal rules (---) -> just a line
+  html = html.replace(/^---+$/gm, "───────────");
+  
+  // Code blocks (```...```) - must be before inline code
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre>$2</pre>");
+  
+  // Inline code (`...`)
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  
+  // Bold (**...**)
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  
+  // Italic (*...* but not **)
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>");
+  
+  // Strikethrough (~~...~~)
+  html = html.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  
+  // Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  
+  // List items (- item) -> bullet
+  html = html.replace(/^- (.+)$/gm, "• $1");
+  
+  // Clean up multiple newlines
+  html = html.replace(/\n{3,}/g, "\n\n");
+  
+  return html.trim();
+}
+
 export interface TelegramConfig {
   token: string;
   allowList?: string[];
@@ -91,12 +140,26 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
     async send(target: string, message: OutboundMessage) {
       const chatId = parseInt(target, 10);
-      await bot.api.sendMessage(chatId, message.text, {
-        parse_mode: "Markdown",
-        reply_to_message_id: message.replyToId
-          ? parseInt(message.replyToId, 10)
-          : undefined,
-      });
+      
+      // Convert markdown to HTML for Telegram
+      const html = markdownToTelegramHtml(message.text);
+      
+      try {
+        await bot.api.sendMessage(chatId, html, {
+          parse_mode: "HTML",
+          reply_to_message_id: message.replyToId
+            ? parseInt(message.replyToId, 10)
+            : undefined,
+        });
+      } catch (err) {
+        // Fallback to plain text if HTML parsing fails
+        log.warn("HTML parsing failed, sending as plain text", err);
+        await bot.api.sendMessage(chatId, message.text, {
+          reply_to_message_id: message.replyToId
+            ? parseInt(message.replyToId, 10)
+            : undefined,
+        });
+      }
     },
   };
 }
