@@ -2,7 +2,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { scanSkillsDirectory, parseSkillManifest, loadSkillModule } from "../loader.js";
+import {
+  scanSkillsDirectory,
+  parseSkillManifest,
+  loadSkillModule,
+  loadSkills,
+} from "../loader.js";
 
 const TEST_SKILLS_DIR = join(process.cwd(), "test-skills-tmp");
 
@@ -162,5 +167,106 @@ describe("loadSkillModule", () => {
     await expect(loadSkillModule(skillDir, "index.js")).rejects.toThrow(
       "must export a 'tools' object"
     );
+  });
+});
+
+describe("loadSkills", () => {
+  beforeEach(async () => {
+    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+  });
+
+  it("should load all valid skills from directory", async () => {
+    // Create skill 1
+    const skill1Dir = join(TEST_SKILLS_DIR, "skill-one");
+    await mkdir(skill1Dir);
+    await writeFile(
+      join(skill1Dir, "package.json"),
+      JSON.stringify({
+        name: "skill-one",
+        version: "0.1.0",
+        owliabot: {
+          tools: [
+            {
+              name: "tool_a",
+              description: "Tool A",
+              parameters: { type: "object", properties: {} },
+              security: { level: "read" },
+            },
+          ],
+        },
+      })
+    );
+    await writeFile(
+      join(skill1Dir, "index.js"),
+      `export const tools = { tool_a: async () => ({ success: true }) };`
+    );
+
+    // Create skill 2
+    const skill2Dir = join(TEST_SKILLS_DIR, "skill-two");
+    await mkdir(skill2Dir);
+    await writeFile(
+      join(skill2Dir, "package.json"),
+      JSON.stringify({
+        name: "skill-two",
+        version: "0.1.0",
+        owliabot: {
+          tools: [
+            {
+              name: "tool_b",
+              description: "Tool B",
+              parameters: { type: "object", properties: {} },
+              security: { level: "read" },
+            },
+          ],
+        },
+      })
+    );
+    await writeFile(
+      join(skill2Dir, "index.js"),
+      `export const tools = { tool_b: async () => ({ success: true }) };`
+    );
+
+    const result = await loadSkills(TEST_SKILLS_DIR);
+
+    expect(result.loaded).toHaveLength(2);
+    expect(result.failed).toHaveLength(0);
+    expect(result.loaded.map((s) => s.manifest.name).sort()).toEqual([
+      "skill-one",
+      "skill-two",
+    ]);
+  });
+
+  it("should report failed skills without crashing", async () => {
+    // Create valid skill
+    const validDir = join(TEST_SKILLS_DIR, "valid");
+    await mkdir(validDir);
+    await writeFile(
+      join(validDir, "package.json"),
+      JSON.stringify({
+        name: "valid",
+        version: "0.1.0",
+        owliabot: { tools: [] },
+      })
+    );
+    await writeFile(join(validDir, "index.js"), `export const tools = {};`);
+
+    // Create invalid skill (bad manifest)
+    const invalidDir = join(TEST_SKILLS_DIR, "invalid");
+    await mkdir(invalidDir);
+    await writeFile(
+      join(invalidDir, "package.json"),
+      JSON.stringify({ name: "invalid" }) // Missing owliabot
+    );
+
+    const result = await loadSkills(TEST_SKILLS_DIR);
+
+    expect(result.loaded).toHaveLength(1);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].name).toBe("invalid");
+    expect(result.failed[0].error).toBeDefined();
   });
 });

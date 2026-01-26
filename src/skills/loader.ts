@@ -7,7 +7,7 @@ import { readdir, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLogger } from "../utils/logger.js";
-import { skillManifestSchema, type SkillManifest, type SkillModule } from "./types.js";
+import { skillManifestSchema, type SkillManifest, type SkillModule, type LoadedSkill } from "./types.js";
 
 const log = createLogger("skills");
 
@@ -82,4 +82,44 @@ export async function loadSkillModule(
   }
 
   return { tools: module.tools };
+}
+
+export interface LoadSkillsResult {
+  loaded: LoadedSkill[];
+  failed: Array<{ name: string; error: string }>;
+}
+
+/**
+ * Load all skills from a directory
+ */
+export async function loadSkills(skillsDir: string): Promise<LoadSkillsResult> {
+  const result: LoadSkillsResult = {
+    loaded: [],
+    failed: [],
+  };
+
+  const skillPaths = await scanSkillsDirectory(skillsDir);
+
+  for (const skillPath of skillPaths) {
+    const skillName = skillPath.split("/").pop() || "unknown";
+
+    try {
+      const manifest = await parseSkillManifest(skillPath);
+      const module = await loadSkillModule(skillPath, manifest.main);
+
+      result.loaded.push({
+        manifest,
+        module,
+        path: skillPath,
+      });
+
+      log.info(`Loaded skill: ${manifest.name}`);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      result.failed.push({ name: skillName, error });
+      log.error(`Failed to load skill ${skillName}: ${error}`);
+    }
+  }
+
+  return result;
 }
