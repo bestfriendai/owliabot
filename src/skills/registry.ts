@@ -62,11 +62,12 @@ function createToolExecutor(
     });
 
     try {
-      // Execute with timeout
-      const result = await Promise.race([
+      // Execute with timeout (properly cleaned up)
+      const result = await withTimeout(
         toolFn(params, skillContext),
-        rejectAfter(timeout, `Skill execution timeout (${timeout}ms)`),
-      ]);
+        timeout,
+        `Skill execution timeout (${timeout}ms)`
+      );
 
       // Auto-wrap simple returns
       if (result && typeof result === "object" && !("success" in result)) {
@@ -83,8 +84,14 @@ function createToolExecutor(
   };
 }
 
-function rejectAfter(ms: number, message: string): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(message)), ms);
+/**
+ * Execute a promise with a timeout, ensuring the timer is cleaned up
+ * on both success and failure to prevent timer leaks.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
   });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
 }
