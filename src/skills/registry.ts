@@ -12,7 +12,8 @@ const log = createLogger("skills");
 
 /**
  * Convert a loaded skill to ToolDefinitions for the ToolRegistry
- * Tool names are namespaced: `skill-name:tool-name`
+ * Tool names are namespaced: `skill-name__tool-name` (double underscore)
+ * Note: Colons are not allowed by the Anthropic API tool name pattern
  */
 export function skillToToolDefinitions(skill: LoadedSkill): ToolDefinition[] {
   const { manifest, module } = skill;
@@ -28,7 +29,7 @@ export function skillToToolDefinitions(skill: LoadedSkill): ToolDefinition[] {
       continue;
     }
 
-    const fullName = `${manifest.name}:${toolDef.name}`;
+    const fullName = `${manifest.name}__${toolDef.name}`;
 
     tools.push({
       name: fullName,

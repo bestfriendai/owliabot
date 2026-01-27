@@ -41,7 +41,7 @@ describe("skillToToolDefinitions", () => {
     const tools = skillToToolDefinitions(skill);
 
     expect(tools).toHaveLength(1);
-    expect(tools[0].name).toBe("crypto-price:get_price");
+    expect(tools[0].name).toBe("crypto-price__get_price");
     expect(tools[0].description).toBe("Get crypto price");
     expect(tools[0].security.level).toBe("read");
   });
@@ -75,7 +75,7 @@ describe("skillToToolDefinitions", () => {
     const tools = skillToToolDefinitions(skill);
 
     expect(tools).toHaveLength(1);
-    expect(tools[0].name).toBe("test-skill:declared_tool");
+    expect(tools[0].name).toBe("test-skill__declared_tool");
   });
 
   it("should warn when tool declared in manifest but not exported", () => {

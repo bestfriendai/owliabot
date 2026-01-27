@@ -332,6 +332,6 @@ describe("initializeSkills", () => {
     const result = await initializeSkills(testDir, registry);
 
     expect(result.loaded).toHaveLength(1);
-    expect(registry.get("my-skill:greet")).toBeDefined();
+    expect(registry.get("my-skill__greet")).toBeDefined();
   });
 });
