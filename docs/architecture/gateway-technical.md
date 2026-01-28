@@ -1,6 +1,6 @@
-# OwliaBot Gateway 技术文档（v0.1）
+# OwliaBot Gateway 技术文档（v0.2）
 
-> 面向工程实现与接口对接，基于 HTTP v1 控制平面设计。
+> 面向工程实现与接口对接，基于 HTTP-only v1 控制平面设计。
 
 ## 1. 认证与请求头
 
@@ -11,6 +11,7 @@
 ### 1.2 可选请求头
 - `X-Gateway-Token`: 全局入口令牌
 - `Idempotency-Key`: 幂等键（有副作用请求必填）
+- `X-Request-Id`: 外部调用方提供的请求 ID（可选）
 
 ## 2. 基础接口
 
@@ -44,9 +45,12 @@ GET /events/poll?since=<cursor>
 ```
 {
   cursor,
-  events: [{ type, payload, ts }]
+  events: [{ id, type, time, status, source, message, durationMs, metadata }]
 }
 ```
+
+事件类型：
+`health | heartbeat | cron | agent | tool | mcp`
 
 ## 3. 命令接口（统一模型）
 
@@ -55,21 +59,30 @@ GET /events/poll?since=<cursor>
 POST /command/<type>
 ```
 
-统一请求体：
+统一请求体（建议）：
 ```
 {
   requestId,
+  actor: { id, role },
+  sessionKey,
+  route,
   idempotencyKey,
-  payload
+  payload,
+  security: {
+    level: "read" | "write" | "sign",
+    scopes: []
+  },
+  trace: { traceId, spanId }
 }
 ```
 
-统一响应体：
+统一响应体（建议）：
 ```
 {
   ok: true,
-  result,
-  traceId
+  data,
+  traceId,
+  error: { code, message }
 }
 ```
 

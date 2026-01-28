@@ -1,17 +1,18 @@
-# OwliaBot Gateway 设计文档（v0.1）
+# OwliaBot Gateway 设计文档（v0.2）
 
-> 说明：本设计以 HTTP v1 为主，WebSocket 作为 v2 预留。所有关键点均可回退调整。
+> 说明：当前阶段采用 HTTP-only 控制平面（v1），WebSocket 作为 v2 预留扩展。
 
 ## 1. 目标与边界
 
 ### 1.1 目标
-- 统一承载接入、鉴权、审计与能力路由，形成控制平面（Control Plane）。
-- 为 MCP/系统能力层提供一致的权限语义与审计路径。
+- 统一承载接入、鉴权、审计、幂等与能力路由，形成控制平面（Control Plane）。
+- 为 MCP/Playwright 与系统能力层提供一致的权限语义与审计路径。
 - 保持 OwliaBot 的“本地优先、轻依赖、可审计”原则。
 
 ### 1.2 边界
 - 不引入多渠道泛接入（仍以 Telegram/Discord 为主）。
 - Gateway 不承担 LLM/Tool 的业务逻辑执行，仅负责接入与治理。
+- Gateway 不绕过 Tool Executor 直接调用能力。
 
 ## 2. 架构定位
 
@@ -23,9 +24,26 @@
 ### 2.2 统一入口
 所有 tool/system/mcp 调用必须经由 Gateway 进入 Tool Executor，禁止旁路。
 
-## 3. 协议形态
+## 3. 定位与入口策略
 
-### 3.1 v1（HTTP 优先）
+### 3.1 控制平面定位
+- Gateway 是统一控制与调度入口，不是“单体业务入口”。
+- 所有跨模块请求必须进入 Gateway 协议面，避免旁路。
+
+### 3.2 入口协议（v1）
+- **对外**：HTTP（健康检查、状态、命令、事件轮询）。
+- **对内**：内部总线/路由（消息分发与能力调用）。
+
+### 3.3 控制平面职责
+1. **统一入口**：聚合来自 CLI / Channel / 定时任务 / 系统能力层的请求。
+2. **路由与治理**：基于策略转发到 Agent Runtime、Tool Executor、MCP、System Capability。
+3. **审计与追踪**：记录 requestId、sessionKey、actor、traceId。
+4. **幂等与重试**：处理幂等键与重试策略。
+5. **安全校验**：统一鉴权、签名验证、权限校验、速率限制。
+
+## 4. 协议形态
+
+### 4.1 v1（HTTP-only）
 - `GET /health`：健康检查
 - `GET /status`：运行态快照
 - `POST /command/agent`：触发 Agent 请求
@@ -36,69 +54,69 @@
 
 所有有副作用请求必须携带 `Idempotency-Key`，Gateway 保持短期去重缓存（5~10 分钟）。
 
-### 3.2 v2（WebSocket 预留）
+### 4.2 v2（WebSocket 预留）
 - 首帧 `connect`
 - `req/res/event` 三态结构
 - 保留字段：`deviceId`、`clientType`、`capabilities`、`auth`、`challenge`
 
-## 4. 身份与配对模型
+## 5. 身份与配对模型
 
-### 4.1 设备身份
+### 5.1 设备身份
 - 所有请求必须带 `X-Device-Id`。
 - 首次设备进入“待配对”状态。
 
-### 4.2 设备令牌
+### 5.2 设备令牌
 - Gateway 对已配对设备发放 `X-Device-Token`。
 - 后续请求必须携带 `X-Device-Token`。
 
-### 4.3 本地信任策略
+### 5.3 本地信任策略
 - 本机/同主机来源可自动批准（可配置开关）。
 - 非本地来源需显式批准（CLI/控制接口）。
 
-### 4.4 全局令牌（可选）
+### 5.4 全局令牌（可选）
 - 启用 `X-Gateway-Token` 时，所有请求必须同时满足 GatewayToken + DeviceToken。
 
-## 5. 事件与运行态视图
+## 6. 事件与运行态视图
 
-### 5.1 事件类型（v1）
+### 6.1 事件类型（v1）
 - `health / presence / heartbeat / cron / agent / tool / mcp`
 
-### 5.2 获取方式
+### 6.2 获取方式
 - `GET /status`：完整快照
 - `GET /events/poll?since=<cursor>`：增量事件
 
-### 5.3 快照内容
+### 6.3 快照内容
 - Gateway 版本与运行健康
 - 活跃设备列表
 - 运行中任务（agent/tool/mcp）
 - 最近心跳与 cron 触发记录
 
-## 6. 工具执行链与安全边界
+## 7. 工具执行链与安全边界
 
-### 6.1 责任边界
+### 7.1 责任边界
 - Gateway：准入校验、审计标记、路由
 - Tool Executor：权限裁决与确认流程（read/write/sign）
 
-### 6.2 审计链路
+### 7.2 审计链路
 - Gateway 记录 `deviceId / capabilityId / idempotencyKey / requestHash`
 - Tool Executor 记录执行结果、风险级别、确认状态
 
-## 7. MCP / 系统能力层
+## 8. MCP / 系统能力层
 
-### 7.1 MCP 接入
+### 8.1 MCP 接入
 - MCP 服务作为“受控能力节点”注册到 Gateway。
 - 注册字段：`capabilityId / scope / level / rateLimit`。
 
-### 7.2 系统能力层
+### 8.2 系统能力层
 - `exec / web fetch / web search` 统一为 SystemCapability。
 - 统一链路：`Client → Gateway → Tool Executor → Capability`。
 
-## 8. 兼容策略
+## 9. 兼容策略
 
-### 8.1 简化模式
+### 9.1 简化模式
 - 允许“HTTP-only + 内部调用”作为早期实现。
 
-### 8.2 演进路径
+### 9.2 演进路径
 - 当需要实时事件或流式输出时，引入 WS v2。
 
 ---
