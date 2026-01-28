@@ -130,6 +130,7 @@
 - 统一链路：`Client → Gateway → Tool Executor → Capability`。
 - 动作级权限：`exec = write`，`web.fetch = read`，`web.search = read`。
 - 安全策略：命令白名单 + 工作目录限制 + 环境变量隔离；域名策略 + 超时 + 最大响应；允许 POST 但必须做敏感信息审查。
+  - 敏感信息审查建议：自动扫描常见机密模式；命中高置信规则默认阻断或要求显式确认。
 
 ## 9. 兼容策略
 
