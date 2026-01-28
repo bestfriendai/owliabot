@@ -326,6 +326,7 @@ OwliaBot 借鉴 Clawdbot 的架构理念，但针对 Crypto 场景重新设计�
 - **调用路径**：`Client → Gateway /command/mcp → Tool Executor → MCP Adapter → Playwright MCP`。  
 - **动作级权限**：read（`goto`/`wait_for`/`screenshot`/`get_content`/`query`），write（`click`/`type`/`select`/`download`/`upload`/`close`）。  
 - **安全策略**：不强制 sandbox；启用动作白名单；默认允许任意域名（后续可加 allow/deny）；下载与上传允许但目录受控（按 `sessionId`）。  
+- **生产加固建议**：可启用沙箱/容器化运行，并配置域名 allowlist 作为默认策略。  
 
 **系统能力层（exec/web fetch/search）**
 - **统一形态**：SystemCapability（与 MCP 能力一致，统一注册/调用/审计）。  
@@ -510,7 +511,7 @@ src/
   "type": "event",
   "eventId": "uuid",
   "ts": 1710000002,
-  "eventType": "agent.output|tool.progress|mcp.event|system.alert|session.update",
+  "eventType": "agent.output|tool.progress|tool.result|mcp.event|system.alert|session.update",
   "sessionKey": "telegram:883499266",
   "payload": { "any": "data" },
   "trace": { "traceId": "uuid", "spanId": "uuid" }

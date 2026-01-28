@@ -35,7 +35,7 @@ POST /command/system
   idempotencyKey,
   payload: {
     action: "exec",
-    args: { cmd: "ls -la" },
+    args: { command: "ls", params: ["-la"] },
     sessionId,
     cwd,
     env: { PATH: "..." }
@@ -43,6 +43,8 @@ POST /command/system
   security: { level: "write" }
 }
 ```
+
+建议使用结构化参数（`command` + `params`）并在执行前逐项校验，避免字符串拼接带来的注入风险。
 
 ```
 POST /command/system

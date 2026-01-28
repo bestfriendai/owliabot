@@ -71,6 +71,10 @@ POST /command/mcp
 - 下载目录按 session 受控：`workspace/downloads/<sessionId>`。
 - 上传仅允许读取 `workspace/uploads/<sessionId>`（可选）。
 
+生产加固建议：
+- 启用沙箱/容器化运行。
+- 使用域名 allowlist 作为默认策略。
+
 ## 6. 审计字段（建议）
 
 - action / selector / url
