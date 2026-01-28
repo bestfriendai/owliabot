@@ -126,6 +126,22 @@ POST /command/system
 POST /command/mcp
 ```
 
+Playwright MCP 请求示例（建议）：
+```
+{
+  requestId,
+  idempotencyKey,
+  payload: {
+    capabilityId: "mcp.playwright",
+    action: "click",
+    args: { selector: "#submit" },
+    sessionId,
+    context: { url, userAgent, locale }
+  },
+  security: { level: "write" }
+}
+```
+
 ## 4. 能力注册（MCP / System）
 
 ### 4.1 MCP 注册（内部调用）
@@ -145,6 +161,10 @@ POST /capabilities/register
   status          // healthy | degraded | offline
 }
 ```
+
+Playwright capability 建议值：
+- `capabilityId`: `mcp.playwright`
+- `scope`: `browser`
 
 ### 4.2 System Capability
 - `exec`

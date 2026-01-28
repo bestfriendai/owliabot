@@ -321,6 +321,12 @@ OwliaBot 借鉴 Clawdbot 的架构理念，但针对 Crypto 场景重新设计�
 - **确认链路一致**：`write` 走 inline 确认，`sign` 走交易确认/Companion App，与现有确认流程保持一致。  
 - **审计与回滚**：执行结果（request/response、权限级别、上下文摘要）统一记录，支持审计与可追溯撤销。  
 
+**Playwright MCP 集成（v1 约束）**
+- **接入形态**：Playwright 以独立 MCP Server 进程注册到 Gateway（`capabilityId = mcp.playwright`）。  
+- **调用路径**：`Client → Gateway /command/mcp → Tool Executor → MCP Adapter → Playwright MCP`。  
+- **动作级权限**：read（`goto`/`wait_for`/`screenshot`/`get_content`/`query`），write（`click`/`type`/`select`/`download`/`upload`/`close`）。  
+- **安全策略**：不强制 sandbox；启用动作白名单；默认允许任意域名（后续可加 allow/deny）；下载与上传允许但目录受控（按 `sessionId`）。  
+
 ---
 
 ## 4. 模块设计
