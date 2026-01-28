@@ -1,0 +1,136 @@
+# OwliaBot Gateway 技术文档（v0.1）
+
+> 面向工程实现与接口对接，基于 HTTP v1 控制平面设计。
+
+## 1. 认证与请求头
+
+### 1.1 必需请求头
+- `X-Device-Id`: 设备唯一标识
+- `X-Device-Token`: 设备令牌（首次配对后发放）
+
+### 1.2 可选请求头
+- `X-Gateway-Token`: 全局入口令牌
+- `Idempotency-Key`: 幂等键（有副作用请求必填）
+
+## 2. 基础接口
+
+### 2.1 健康检查
+```
+GET /health
+```
+返回：`{ ok: true, version, uptime }`
+
+### 2.2 运行态快照
+```
+GET /status
+```
+返回：
+```
+{
+  version,
+  health,
+  devices: [],
+  running: { agent: [], tool: [], mcp: [] },
+  heartbeat: { lastAt },
+  cron: { lastAt }
+}
+```
+
+### 2.3 事件轮询
+```
+GET /events/poll?since=<cursor>
+```
+返回：
+```
+{
+  cursor,
+  events: [{ type, payload, ts }]
+}
+```
+
+## 3. 命令接口（统一模型）
+
+所有命令使用统一模型：
+```
+POST /command/<type>
+```
+
+统一请求体：
+```
+{
+  requestId,
+  idempotencyKey,
+  payload
+}
+```
+
+统一响应体：
+```
+{
+  ok: true,
+  result,
+  traceId
+}
+```
+
+### 3.1 Agent
+```
+POST /command/agent
+```
+
+### 3.2 Tool
+```
+POST /command/tool
+```
+
+### 3.3 System
+```
+POST /command/system
+```
+
+### 3.4 MCP
+```
+POST /command/mcp
+```
+
+## 4. 能力注册（MCP / System）
+
+### 4.1 MCP 注册（内部调用）
+```
+POST /capabilities/register
+```
+请求体：
+```
+{
+  capabilityId,
+  scope,
+  level,          // read | write | sign
+  rateLimit
+}
+```
+
+### 4.2 System Capability
+- `exec`
+- `web.fetch`
+- `web.search`
+
+所有 System 能力通过 `/command/system` 调用，并受 Tool Executor 权限链路控制。
+
+## 5. 幂等性与审计
+
+### 5.1 幂等性
+- Gateway 对 `Idempotency-Key` 进行去重缓存（TTL 5~10 分钟）。
+
+### 5.2 审计字段
+- Gateway 记录：`deviceId / capabilityId / idempotencyKey / requestHash`
+- Tool Executor 记录：`riskLevel / confirmation / result`
+
+## 6. v2 预留（WebSocket）
+
+- `connect` 首帧
+- `req/res/event` 消息结构
+- 字段：`deviceId / clientType / capabilities / auth / challenge`
+
+---
+
+> 本文档用于实现与对接，如需改动字段或路径可在 v1 迭代中调整。

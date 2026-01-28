@@ -33,3 +33,6 @@ sessions/
 
 # Config (contains secrets)
 config.yaml
+
+# codex
+.codex
