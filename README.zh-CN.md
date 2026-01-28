@@ -153,6 +153,14 @@ providers:
 - `docs/src/content/docs/zh/skills/builtin-skills.md`
 - `docs/src/content/docs/zh/skills/creating-skills.md`
 
+## 架构说明（仓库内）
+
+- `docs/architecture/gateway-design.md`
+- `docs/architecture/gateway-functional.md`
+- `docs/architecture/gateway-technical.md`
+- `docs/architecture/playwright-mcp.md`
+- `docs/architecture/system-capability.md`
+
 ## 常用命令
 
 ```bash
