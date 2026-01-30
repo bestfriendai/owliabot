@@ -153,6 +153,14 @@ These repo docs are the canonical reference:
 - `docs/src/content/docs/skills/builtin-skills.md`
 - `docs/src/content/docs/skills/creating-skills.md`
 
+## Architecture Notes (Repo)
+
+- `docs/architecture/gateway-design.md`
+- `docs/architecture/gateway-functional.md`
+- `docs/architecture/gateway-technical.md`
+- `docs/architecture/playwright-mcp.md`
+- `docs/architecture/system-capability.md`
+
 ## Common Commands
 
 ```bash
