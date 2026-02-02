@@ -247,6 +247,18 @@ export async function startGatewayHttp(opts: {
         return normalizeToolResult(call, result);
       });
 
+      const eventTime = Date.now();
+      const allOk = results.every((r) => r.success);
+      store.insertEvent({
+        type: "command.tool",
+        time: eventTime,
+        status: allOk ? "success" : "error",
+        source: deviceId,
+        message: "tool calls executed",
+        metadataJson: JSON.stringify({ results }),
+        expiresAt: eventTime + opts.config.eventTtlMs,
+      });
+
       const responsePayload = { ok: true, data: { results } };
       sendJson(res, 200, responsePayload);
       if (idempotencyKey) {
