@@ -1,6 +1,9 @@
 import http from "node:http";
 import { createStore } from "./store.js";
-import { isIpAllowed } from "./utils.js";
+import { executeToolCalls } from "../agent/tools/executor.js";
+import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
+import { createGatewayToolRegistry } from "./tooling.js";
+import { hashToken, isIpAllowed } from "./utils.js";
 
 export interface GatewayHttpConfig {
   host: string;
@@ -13,8 +16,14 @@ export interface GatewayHttpConfig {
   rateLimit: { windowMs: number; max: number };
 }
 
-export async function startGatewayHttp(opts: { config: GatewayHttpConfig }) {
+export async function startGatewayHttp(opts: {
+  config: GatewayHttpConfig;
+  workspacePath?: string;
+}) {
   const store = createStore(opts.config.sqlitePath);
+  const tools = await createGatewayToolRegistry(
+    opts.workspacePath ?? process.cwd()
+  );
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);
@@ -128,6 +137,79 @@ export async function startGatewayHttp(opts: { config: GatewayHttpConfig }) {
       return;
     }
 
+    if (url.pathname === "/command/tool" && req.method === "POST") {
+      const deviceId = getHeader(req, "x-device-id");
+      const deviceToken = getHeader(req, "x-device-token");
+      if (!deviceId || !deviceToken) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing device auth" },
+        });
+        return;
+      }
+      const device = store.getDevice(deviceId);
+      if (!device || device.revokedAt || !device.tokenHash) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Device not paired" },
+        });
+        return;
+      }
+      if (hashToken(deviceToken) !== device.tokenHash) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Invalid device token" },
+        });
+        return;
+      }
+
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const calls = body?.payload?.toolCalls;
+      if (!Array.isArray(calls)) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "toolCalls required" },
+        });
+        return;
+      }
+
+      const toolCalls: ToolCall[] = calls.map((call: any) => ({
+        id: String(call.id),
+        name: String(call.name),
+        arguments: call.arguments ?? {},
+      }));
+
+      const resultsMap = await executeToolCalls(toolCalls, {
+        registry: tools,
+        context: {
+          sessionKey: `gateway:${deviceId}`,
+          agentId: "gateway-http",
+          signer: null,
+          config: {},
+        },
+      });
+
+      const results = toolCalls.map((call) => {
+        const result = resultsMap.get(call.id) ?? {
+          success: false,
+          error: "Tool execution failed",
+        };
+        return normalizeToolResult(call, result);
+      });
+
+      sendJson(res, 200, { ok: true, data: { results } });
+      return;
+    }
+
     res.writeHead(404, { "content-type": "application/json" });
     res.end(
       JSON.stringify({
@@ -170,6 +252,15 @@ function getRemoteIp(req: http.IncomingMessage): string {
   return ip;
 }
 
+function getHeader(
+  req: http.IncomingMessage,
+  name: string
+): string | undefined {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
 function requireGatewayAuth(
   req: http.IncomingMessage,
   token?: string
@@ -177,6 +268,16 @@ function requireGatewayAuth(
   if (!token) return true;
   const provided = req.headers["x-gateway-token"];
   return typeof provided === "string" && provided === token;
+}
+
+function normalizeToolResult(call: ToolCall, result: ToolResult) {
+  return {
+    id: call.id,
+    name: call.name,
+    success: result.success,
+    data: result.data,
+    error: result.error,
+  };
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<any> {
