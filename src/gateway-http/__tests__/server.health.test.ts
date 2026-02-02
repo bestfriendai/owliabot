@@ -16,7 +16,7 @@ describe("gateway health", () => {
   it("returns ok", async () => {
     const server = await startGatewayHttp({ config: baseConfig });
     const res = await fetch(server.baseUrl + "/health");
-    const json = await res.json();
+    const json: any = await res.json();
     expect(json.ok).toBe(true);
     await server.stop();
   });

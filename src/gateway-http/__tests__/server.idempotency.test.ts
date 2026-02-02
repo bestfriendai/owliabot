@@ -20,7 +20,7 @@ describe("idempotency", () => {
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev1" }),
     });
-    const { data } = await approve.json();
+    const { data }: any = await approve.json();
 
     const body = JSON.stringify({ payload: { toolCalls: [] } });
     const headers = {

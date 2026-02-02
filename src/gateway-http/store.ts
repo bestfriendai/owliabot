@@ -59,6 +59,41 @@ export interface Store {
   cleanup(now: number): void;
 }
 
+interface DeviceRow {
+  device_id: string;
+  token_hash: string | null;
+  revoked_at: number | null;
+}
+
+interface PendingRow {
+  device_id: string;
+  requested_at: number;
+  ip: string;
+  user_agent: string;
+}
+
+interface IdempotencyRow {
+  key: string;
+  request_hash: string;
+  response_json: string;
+  expires_at: number;
+}
+
+interface EventRow {
+  id: number;
+  type: string;
+  time: number;
+  status: string;
+  source: string;
+  message: string;
+  metadata_json: string | null;
+}
+
+interface RateLimitRow {
+  count: number;
+  reset_at: number;
+}
+
 export function createStore(path: string): Store {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
@@ -117,7 +152,7 @@ export function createStore(path: string): Store {
   return {
     getDevice(deviceId) {
       const row = db
-        .prepare(
+        .prepare<[string], DeviceRow>(
           "SELECT device_id, token_hash, revoked_at FROM devices WHERE device_id=?"
         )
         .get(deviceId);
@@ -135,7 +170,7 @@ export function createStore(path: string): Store {
     },
     listPending() {
       return db
-        .prepare(
+        .prepare<[], PendingRow>(
           "SELECT device_id, requested_at, ip, user_agent FROM pairing_pending"
         )
         .all()
@@ -168,7 +203,7 @@ export function createStore(path: string): Store {
     },
     getIdempotency(key) {
       const row = db
-        .prepare(
+        .prepare<[string], IdempotencyRow>(
           "SELECT key, request_hash, response_json, expires_at FROM idempotency WHERE key=?"
         )
         .get(key);
@@ -194,14 +229,14 @@ export function createStore(path: string): Store {
       );
     },
     pollEvents(since, limit, now) {
-      const rows = since
+      const rows: EventRow[] = since
         ? db
-            .prepare(
+            .prepare<[number, number, number], EventRow>(
               "SELECT id, type, time, status, source, message, metadata_json FROM events WHERE id>? AND expires_at>? ORDER BY id ASC LIMIT ?"
             )
             .all(since, now, limit)
         : db
-            .prepare(
+            .prepare<[number, number], EventRow>(
               "SELECT id, type, time, status, source, message, metadata_json FROM events WHERE expires_at>? ORDER BY id DESC LIMIT ?"
             )
             .all(now, limit)
@@ -228,7 +263,7 @@ export function createStore(path: string): Store {
     },
     checkRateLimit(bucket, windowMs, max, now) {
       const current = db
-        .prepare("SELECT count, reset_at FROM rate_limits WHERE bucket=?")
+        .prepare<[string], RateLimitRow>("SELECT count, reset_at FROM rate_limits WHERE bucket=?")
         .get(bucket);
       if (!current || current.reset_at <= now) {
         db.prepare(
@@ -255,7 +290,7 @@ function cryptoRandomToken() {
   return randomBytes(24).toString("hex");
 }
 
-function mapEventRow(row: any): EventRecord {
+function mapEventRow(row: EventRow): EventRecord {
   return {
     id: row.id,
     type: row.type,

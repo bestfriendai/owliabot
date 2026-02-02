@@ -20,7 +20,7 @@ describe("gateway integration", () => {
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev1" }),
     });
-    const { data } = await approve.json();
+    const { data }: any = await approve.json();
 
     await fetch(server.baseUrl + "/command/tool", {
       method: "POST",
@@ -34,7 +34,7 @@ describe("gateway integration", () => {
     });
 
     const events = await fetch(server.baseUrl + "/events/poll");
-    const json = await events.json();
+    const json: any = await events.json();
     expect(json.cursor).toBeTypeOf("number");
     expect(json.events.length).toBeGreaterThan(0);
     await server.stop();

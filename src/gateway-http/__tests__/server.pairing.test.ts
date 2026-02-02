@@ -20,7 +20,7 @@ describe("pairing", () => {
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev1" }),
     });
-    const json = await res.json();
+    const json: any = await res.json();
     expect(json.ok).toBe(true);
     expect(json.data.deviceToken).toBeTruthy();
     await server.stop();

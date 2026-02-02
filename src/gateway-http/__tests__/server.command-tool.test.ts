@@ -20,7 +20,7 @@ describe("command tool", () => {
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev1" }),
     });
-    const { data } = await deviceRes.json();
+    const { data }: any = await deviceRes.json();
 
     const res = await fetch(server.baseUrl + "/command/tool", {
       method: "POST",
@@ -35,7 +35,7 @@ describe("command tool", () => {
       }),
     });
 
-    const json = await res.json();
+    const json: any = await res.json();
     expect(json.ok).toBe(true);
     expect(json.data.results[0].success).toBe(true);
     await server.stop();
