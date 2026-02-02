@@ -3,7 +3,7 @@ import { createStore } from "./store.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
 import { createGatewayToolRegistry } from "./tooling.js";
-import { hashToken, isIpAllowed } from "./utils.js";
+import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
 
 export interface GatewayHttpConfig {
   host: string;
@@ -163,9 +163,11 @@ export async function startGatewayHttp(opts: {
         return;
       }
 
+      let rawBody = "";
       let body: any;
       try {
-        body = await readJsonBody(req);
+        rawBody = await readBodyString(req);
+        body = rawBody ? JSON.parse(rawBody) : null;
       } catch {
         sendJson(res, 400, {
           ok: false,
@@ -188,6 +190,45 @@ export async function startGatewayHttp(opts: {
         arguments: call.arguments ?? {},
       }));
 
+      const now = Date.now();
+      const idempotencyKey = getHeader(req, "idempotency-key");
+      const requestHash = hashRequest(
+        req.method ?? "POST",
+        url.pathname,
+        rawBody,
+        deviceId
+      );
+      if (idempotencyKey) {
+        const cached = store.getIdempotency(idempotencyKey);
+        if (
+          cached &&
+          cached.requestHash === requestHash &&
+          cached.expiresAt > now
+        ) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(cached.responseJson);
+          return;
+        }
+      }
+
+      const { allowed, resetAt } = store.checkRateLimit(
+        `device:${deviceId}`,
+        opts.config.rateLimit.windowMs,
+        opts.config.rateLimit.max,
+        now
+      );
+      if (!allowed) {
+        sendJson(res, 429, {
+          ok: false,
+          error: {
+            code: "ERR_RATE_LIMIT",
+            message: "Too many requests",
+          },
+          resetAt,
+        });
+        return;
+      }
+
       const resultsMap = await executeToolCalls(toolCalls, {
         registry: tools,
         context: {
@@ -206,7 +247,16 @@ export async function startGatewayHttp(opts: {
         return normalizeToolResult(call, result);
       });
 
-      sendJson(res, 200, { ok: true, data: { results } });
+      const responsePayload = { ok: true, data: { results } };
+      sendJson(res, 200, responsePayload);
+      if (idempotencyKey) {
+        store.saveIdempotency(
+          idempotencyKey,
+          requestHash,
+          responsePayload,
+          now + opts.config.idempotencyTtlMs
+        );
+      }
       return;
     }
 
@@ -280,7 +330,7 @@ function normalizeToolResult(call: ToolCall, result: ToolResult) {
   };
 }
 
-async function readJsonBody(req: http.IncomingMessage): Promise<any> {
+async function readBodyString(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
@@ -291,6 +341,12 @@ async function readJsonBody(req: http.IncomingMessage): Promise<any> {
     }
     chunks.push(buf);
   }
-  if (chunks.length === 0) return null;
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (chunks.length === 0) return "";
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<any> {
+  const raw = await readBodyString(req);
+  if (!raw) return null;
+  return JSON.parse(raw);
 }
