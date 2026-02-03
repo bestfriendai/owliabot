@@ -15,7 +15,10 @@ export const providerSchema = z.object({
 
 export const telegramConfigSchema = z.object({
   token: z.string(),
+  /** Allow list of Telegram user IDs */
   allowList: z.array(z.string()).optional(),
+  /** Allow list of Telegram group IDs where the bot will respond even in mention-only mode */
+  groupAllowList: z.array(z.string()).optional(),
 });
 
 export const discordConfigSchema = z.object({
@@ -24,7 +27,7 @@ export const discordConfigSchema = z.object({
   allowList: z.array(z.string()).optional(),
   /** Allow list of guild channel IDs where the bot will respond */
   channelAllowList: z.array(z.string()).optional(),
-  /** If true (default), only respond in guild when mentioned OR channel is allowlisted */
+  /** Deprecated: use group.activation instead (kept for backward compatibility). */
   requireMentionInGuild: z.boolean().default(true),
 });
 

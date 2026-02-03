@@ -95,7 +95,6 @@ export async function startGateway(
       token: config.discord.token,
       allowList: config.discord.allowList,
       channelAllowList: config.discord.channelAllowList,
-      requireMentionInGuild: config.discord.requireMentionInGuild,
     });
 
     discord.onMessage(async (ctx) => {
@@ -150,9 +149,11 @@ async function handleMessage(
   // Group activation gate (default: mention-only)
   if (ctx.chatType !== "direct" && (config.group?.activation ?? "mention") === "mention") {
     const allowlistedChannel =
-      ctx.channel === "discord" &&
       !!ctx.groupId &&
-      !!config.discord?.channelAllowList?.includes(ctx.groupId);
+      ((ctx.channel === "discord" &&
+        !!config.discord?.channelAllowList?.includes(ctx.groupId)) ||
+        (ctx.channel === "telegram" &&
+          !!config.telegram?.groupAllowList?.includes(ctx.groupId)));
 
     if (!ctx.mentioned && !allowlistedChannel) {
       return;
@@ -230,12 +231,14 @@ async function handleMessage(
     });
 
     // Add assistant message with tool calls to conversation
-    conversationMessages.push({
+    const assistantToolCallMessage: Message = {
       role: "assistant",
       content: response.content || "",
       timestamp: Date.now(),
       toolCalls: response.toolCalls,
-    });
+    };
+    conversationMessages.push(assistantToolCallMessage);
+    await transcripts.append(entry.sessionId, assistantToolCallMessage);
 
     // Add tool results as user message with proper toolResults structure
     // The runner will convert this to pi-ai's ToolResultMessage format
@@ -248,12 +251,14 @@ async function handleMessage(
       } as ToolResult;
     });
 
-    conversationMessages.push({
+    const toolResultMessage: Message = {
       role: "user",
       content: "", // Content is empty, tool results are in toolResults array
       timestamp: Date.now(),
       toolResults: toolResultsArray,
-    });
+    };
+    conversationMessages.push(toolResultMessage);
+    await transcripts.append(entry.sessionId, toolResultMessage);
   }
 
   if (!finalContent && iteration >= MAX_ITERATIONS) {

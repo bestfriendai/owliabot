@@ -16,7 +16,7 @@ export interface DiscordConfig {
   allowList?: string[];
   /** Allow list of guild channel IDs where the bot will respond */
   channelAllowList?: string[];
-  /** If true, only respond in guild when mentioned OR channel is allowlisted */
+  /** Deprecated: use config.group.activation in gateway. */
   requireMentionInGuild?: boolean;
 }
 
@@ -67,7 +67,12 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         const mentioned = !isDM && botUser ? message.mentions.has(botUser) : false;
 
         // Strip bot mention prefix for cleaner prompts (best-effort)
-        const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
+        let body = message.content;
+        if (!isDM && botUser) {
+          const prefixRe = new RegExp(`^<@!?${botUser.id}>\\s*`);
+          body = body.replace(prefixRe, "");
+        }
+        body = body.trim();
 
         const msgCtx: MsgContext = {
           from: message.author.id,
