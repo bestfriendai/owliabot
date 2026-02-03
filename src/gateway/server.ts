@@ -206,6 +206,7 @@ async function handleMessage(
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: ctx.channel,
+    chatType: ctx.chatType,
     timezone: config.timezone,
     model: config.providers[0].model,
   });
