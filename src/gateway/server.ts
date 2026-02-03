@@ -88,6 +88,8 @@ export async function startGateway(
     const discord = createDiscordPlugin({
       token: config.discord.token,
       allowList: config.discord.allowList,
+      channelAllowList: config.discord.channelAllowList,
+      requireMentionInGuild: config.discord.requireMentionInGuild,
     });
 
     discord.onMessage(async (ctx) => {
@@ -138,7 +140,9 @@ async function handleMessage(
   channels: ChannelRegistry,
   tools: ToolRegistry
 ): Promise<void> {
-  const sessionKey: SessionKey = `${ctx.channel}:${ctx.from}`;
+  const conversationId =
+    ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+  const sessionKey: SessionKey = `${ctx.channel}:${conversationId}`;
 
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
@@ -245,7 +249,8 @@ async function handleMessage(
   // Send response
   const channel = channels.get(ctx.channel);
   if (channel) {
-    await channel.send(ctx.from, {
+    const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+    await channel.send(target, {
       text: finalContent,
       replyToId: ctx.messageId,
     });

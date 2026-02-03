@@ -20,7 +20,12 @@ export const telegramConfigSchema = z.object({
 
 export const discordConfigSchema = z.object({
   token: z.string(),
+  /** Allow list of Discord user IDs (DMs or guild messages) */
   allowList: z.array(z.string()).optional(),
+  /** Allow list of guild channel IDs where the bot will respond */
+  channelAllowList: z.array(z.string()).optional(),
+  /** If true (default), only respond in guild when mentioned OR channel is allowlisted */
+  requireMentionInGuild: z.boolean().default(true),
 });
 
 export const notificationsSchema = z.object({
