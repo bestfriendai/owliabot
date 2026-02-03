@@ -53,6 +53,26 @@ const gatewayHttpSchema = z.object({
     .default({ windowMs: 60_000, max: 60 }),
 });
 
+const sessionSchema = z
+  .object({
+    scope: z.enum(["global", "per-agent"]).default("per-agent"),
+    mainKey: z.string().default("main"),
+    storePath: z.string().optional(),
+  })
+  .default({ scope: "per-agent", mainKey: "main" });
+
+const agentsSchema = z
+  .object({
+    defaultId: z.string().default("main"),
+  })
+  .default({ defaultId: "main" });
+
+const groupSchema = z
+  .object({
+    activation: z.enum(["mention", "always"]).default("mention"),
+  })
+  .default({ activation: "mention" });
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -60,6 +80,11 @@ export const configSchema = z.object({
   // Channels
   telegram: telegramConfigSchema.optional(),
   discord: discordConfigSchema.optional(),
+
+  // Session
+  session: sessionSchema,
+  agents: agentsSchema,
+  group: groupSchema,
 
   // Notifications
   notifications: notificationsSchema.optional(),
