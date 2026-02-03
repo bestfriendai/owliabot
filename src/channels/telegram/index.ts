@@ -108,6 +108,7 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
           from: ctx.from?.id.toString() ?? "",
           senderName: ctx.from?.first_name ?? "Unknown",
           senderUsername: ctx.from?.username,
+          mentioned: true,
           body: ctx.message.text,
           messageId: ctx.message.message_id.toString(),
           replyToId: ctx.message.reply_to_message?.message_id.toString(),

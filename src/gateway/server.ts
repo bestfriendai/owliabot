@@ -10,11 +10,10 @@ import type { WorkspaceFiles } from "../workspace/types.js";
 import { ChannelRegistry } from "../channels/registry.js";
 import { createTelegramPlugin } from "../channels/telegram/index.js";
 import { createDiscordPlugin } from "../channels/discord/index.js";
-import {
-  createSessionManager,
-  type Message,
-  type SessionKey,
-} from "../agent/session.js";
+import type { Message } from "../agent/session.js";
+import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
+import { createSessionStore } from "../agent/session-store.js";
+import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
@@ -49,13 +48,21 @@ export async function startGateway(
   const { config, workspace, sessionsDir } = options;
 
   const channels = new ChannelRegistry();
-  const sessions = createSessionManager(sessionsDir);
+
+  const sessionStore = createSessionStore({
+    sessionsDir,
+    storePath: config.session?.storePath,
+  });
+
+  const transcripts = createSessionTranscriptStore({
+    sessionsDir,
+  });
 
   // Create tool registry and register builtin tools
   const tools = new ToolRegistry();
   tools.register(echoTool);
   tools.register(createHelpTool(tools));
-  tools.register(createClearSessionTool(sessions));
+  tools.register(createClearSessionTool({ sessionStore, transcripts }));
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
   tools.register(createListFilesTool(config.workspace));
@@ -76,7 +83,7 @@ export async function startGateway(
     });
 
     telegram.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessions, channels, tools);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools);
     });
 
     channels.register(telegram);
@@ -92,7 +99,7 @@ export async function startGateway(
     });
 
     discord.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessions, channels, tools);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools);
     });
 
     channels.register(discord);
@@ -135,26 +142,45 @@ async function handleMessage(
   ctx: MsgContext,
   config: Config,
   workspace: WorkspaceFiles,
-  sessions: ReturnType<typeof createSessionManager>,
+  sessionStore: ReturnType<typeof createSessionStore>,
+  transcripts: ReturnType<typeof createSessionTranscriptStore>,
   channels: ChannelRegistry,
   tools: ToolRegistry
-): Promise<void> {
-  const conversationId =
-    ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
-  const sessionKey: SessionKey = `${ctx.channel}:${conversationId}`;
+): Promise<void> {  
+  // Group activation gate (default: mention-only)
+  if (ctx.chatType !== "direct" && (config.group?.activation ?? "mention") === "mention") {
+    const allowlistedChannel =
+      ctx.channel === "discord" &&
+      !!ctx.groupId &&
+      !!config.discord?.channelAllowList?.includes(ctx.groupId);
+
+    if (!ctx.mentioned && !allowlistedChannel) {
+      return;
+    }
+  }
+
+  const agentId = resolveAgentId({ config });
+  const sessionKey = resolveSessionKey({ ctx, config });
 
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
-  // Append user message to session
+  const entry = await sessionStore.getOrCreate(sessionKey, {
+    channel: ctx.channel,
+    chatType: ctx.chatType,
+    groupId: ctx.groupId,
+    displayName: ctx.senderName,
+  });
+
+  // Append user message to transcript
   const userMessage: Message = {
     role: "user",
     content: ctx.body,
     timestamp: ctx.timestamp,
   };
-  await sessions.append(sessionKey, userMessage);
+  await transcripts.append(entry.sessionId, userMessage);
 
   // Get conversation history
-  const history = await sessions.getHistory(sessionKey);
+  const history = await transcripts.getHistory(entry.sessionId);
 
   // Build system prompt
   const systemPrompt = buildSystemPrompt({
@@ -197,7 +223,7 @@ async function handleMessage(
       registry: tools,
       context: {
         sessionKey,
-        agentId: "owliabot",
+        agentId,
         signer: null,
         config: {},
       },
@@ -243,7 +269,7 @@ async function handleMessage(
     content: finalContent,
     timestamp: Date.now(),
   };
-  await sessions.append(sessionKey, assistantMessage);
+  await transcripts.append(entry.sessionId, assistantMessage);
 
   // Send response
   const channel = channels.get(ctx.channel);

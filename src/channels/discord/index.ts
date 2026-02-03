@@ -62,27 +62,9 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           }
         }
 
-        // Guild filtering rules
-        if (!isDM) {
-          const botUser = client.user;
-          const mentioned = botUser ? message.mentions.has(botUser) : false;
-          const inAllowedChannel =
-            config.channelAllowList && config.channelAllowList.length > 0
-              ? config.channelAllowList.includes(message.channel.id)
-              : false;
-
-          const requireMention = config.requireMentionInGuild ?? true;
-
-          // If mention is required, only respond when mentioned OR channel is allowlisted
-          if (requireMention && !mentioned && !inAllowedChannel) {
-            return;
-          }
-
-          // If channel allowlist is set (and mention not required), still gate by it
-          if (!requireMention && config.channelAllowList && !inAllowedChannel) {
-            return;
-          }
-        }
+        // Compute mention signal (gateway will decide whether to respond)
+        const botUser = client.user;
+        const mentioned = !isDM && botUser ? message.mentions.has(botUser) : false;
 
         // Strip bot mention prefix for cleaner prompts (best-effort)
         const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
@@ -91,6 +73,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           from: message.author.id,
           senderName: message.author.displayName ?? message.author.username,
           senderUsername: message.author.username,
+          mentioned: isDM ? true : mentioned,
           body: body.length > 0 ? body : message.content,
           messageId: message.id,
           replyToId: message.reference?.messageId,
