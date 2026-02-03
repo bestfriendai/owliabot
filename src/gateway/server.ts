@@ -27,7 +27,6 @@ import {
   createMemorySearchTool,
   createMemoryGetTool,
   createListFilesTool,
-  createEditFileTool,
 } from "../agent/tools/builtin/index.js";
 import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
@@ -60,7 +59,7 @@ export async function startGateway(
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
   tools.register(createListFilesTool(config.workspace));
-  tools.register(createEditFileTool(config.workspace));
+  // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
   const skillsEnabled = config.skills?.enabled ?? true;
