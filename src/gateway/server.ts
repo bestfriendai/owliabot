@@ -178,7 +178,7 @@ async function handleMessage(
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: ctx.channel,
-    timezone: "UTC+8", // TODO: from config
+    timezone: config.timezone,
     model: config.providers[0].model,
   });
 

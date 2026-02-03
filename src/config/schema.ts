@@ -95,6 +95,9 @@ export const configSchema = z.object({
   // Workspace path
   workspace: z.string().default("./workspace"),
 
+  // Timezone (used in prompts)
+  timezone: z.string().default("UTC"),
+
   // Cron
   heartbeat: z
     .object({
