@@ -21,13 +21,19 @@ export function createClearSessionTool(options: {
     async execute(_params, ctx) {
       const { sessionStore, transcripts } = options;
 
-      // v1: clear the current transcript. (Rotation semantics are handled in a later PR.)
-      const entry = await sessionStore.getOrCreate(ctx.sessionKey);
-      await transcripts.clear(entry.sessionId);
+      const existing = await sessionStore.get(ctx.sessionKey);
+      const rotated = await sessionStore.rotate(ctx.sessionKey);
+
+      // Clear transcripts for both the old + the new sessionId.
+      // (New will usually be empty, but we ensure it.)
+      if (existing?.sessionId) {
+        await transcripts.clear(existing.sessionId);
+      }
+      await transcripts.clear(rotated.sessionId);
 
       return {
         success: true,
-        data: { message: "Session cleared", sessionId: entry.sessionId },
+        data: { message: "Session cleared", sessionId: rotated.sessionId },
       };
     },
   };
