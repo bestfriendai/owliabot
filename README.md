@@ -107,6 +107,13 @@ Key sections in `config.yaml`:
 - `skills.enabled` and `skills.directory`: skills system toggle and path
 - `notifications.channel`: proactive message target (for example `telegram:883499266`)
 - `heartbeat`: cron-based scheduled tasks
+- `session`: DM conversation scope
+  - **Note:** DMs are treated as a single “main” conversation bucket (not per-sender). This is intended for single-user allowlist setups.
+  - `session.mainKey`: the DM bucket name (default `main`)
+  - `session.scope`: `per-agent` (default) or `global`
+- `group.activation`: group chat activation mode
+  - `mention` (default): only respond when explicitly mentioned (`ctx.mentioned`) (Discord), or when the channel is allowlisted
+  - `always`: respond to all messages in group chats (consider `discord.channelAllowList` to avoid spam)
 
 Common environment variables:
 
