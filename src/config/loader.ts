@@ -11,9 +11,14 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("config");
 
 export async function loadConfig(path: string): Promise<Config> {
-  log.info(`Loading config from ${path}`);
+  // Expand leading ~
+  const expandedPath = path.startsWith("~")
+    ? resolve(process.env.HOME ?? process.env.USERPROFILE ?? ".", path.slice(1))
+    : path;
 
-  const content = await readFile(path, "utf-8");
+  log.info(`Loading config from ${expandedPath}`);
+
+  const content = await readFile(expandedPath, "utf-8");
   const raw = parse(content);
 
   // Expand environment variables
@@ -23,7 +28,7 @@ export async function loadConfig(path: string): Promise<Config> {
   const config = configSchema.parse(expanded);
 
   // Resolve workspace path relative to config file
-  const configDir = dirname(resolve(path));
+  const configDir = dirname(resolve(expandedPath));
   config.workspace = resolve(configDir, config.workspace);
   log.debug(`Resolved workspace path: ${config.workspace}`);
 

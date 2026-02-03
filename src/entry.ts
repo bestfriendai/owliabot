@@ -14,6 +14,8 @@ import {
   getOAuthStatus,
   clearOAuthCredentials,
 } from "./auth/oauth.js";
+import { runOnboarding } from "./onboarding/onboard.js";
+import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 
 const log = logger;
 
@@ -25,7 +27,11 @@ program
 program
   .command("start")
   .description("Start the bot")
-  .option("-c, --config <path>", "Config file path", "config.yaml")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: ~/.owlia_dev/app.yaml)",
+    "~/.owlia_dev/app.yaml"
+  )
   .action(async (options) => {
     try {
       log.info("Starting OwliaBot...");
@@ -60,6 +66,19 @@ program
       log.info("OwliaBot is running. Press Ctrl+C to stop.");
     } catch (err) {
       log.error("Failed to start", err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("onboard")
+  .description("Interactive onboarding (dev): writes ~/.owlia_dev/app.yaml and guides OAuth")
+  .option("--path <path>", "App config output path", DEV_APP_CONFIG_PATH)
+  .action(async (options) => {
+    try {
+      await runOnboarding({ appConfigPath: options.path });
+    } catch (err) {
+      log.error("Onboarding failed", err);
       process.exit(1);
     }
   });
