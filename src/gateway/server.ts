@@ -18,6 +18,7 @@ import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { shouldHandleMessage } from "./activation.js";
+import { tryHandleCommand } from "./commands.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -204,6 +205,27 @@ async function handleMessage(
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
 
+  // Intercept slash commands before the LLM loop
+  const cmd = await tryHandleCommand({
+    ctx,
+    sessionKey,
+    sessionStore,
+    transcripts,
+    channels,
+    resetTriggers: config.session?.resetTriggers,
+    defaultModelLabel: config.providers?.[0]?.model,
+    workspacePath: config.workspace,
+    // Use configured summaryModel, or fall back to default provider's model (OpenClaw strategy)
+    summaryModel: config.session?.summaryModel 
+      ? { provider: config.providers?.[0]?.id, model: config.session.summaryModel } 
+      : config.providers?.[0] 
+        ? { provider: config.providers[0].id, model: config.providers[0].model }
+        : undefined,
+    summarizeOnReset: config.session?.summarizeOnReset,
+    timezone: config.timezone,
+  });
+  if (cmd.handled) return;
+
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
   const entry = await sessionStore.getOrCreate(sessionKey, {
@@ -228,6 +250,7 @@ async function handleMessage(
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: ctx.channel,
+    chatType: ctx.chatType,
     timezone: config.timezone,
     model: config.providers[0].model,
   });
@@ -268,7 +291,9 @@ async function handleMessage(
           sessionKey,
           agentId,
           signer: null,
-          config: {},
+          config: {
+            memorySearch: config.memorySearch,
+          },
         },
         writeGateChannel: writeGateChannels.get(ctx.channel),
         securityConfig: config.security,

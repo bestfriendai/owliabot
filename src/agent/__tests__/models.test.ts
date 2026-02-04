@@ -53,12 +53,12 @@ describe("models", () => {
     });
 
     it("should default to anthropic provider", () => {
-      const mockModel = { provider: "anthropic", id: "claude-3-5-haiku", api: "anthropic-messages" };
+      const mockModel = { provider: "anthropic", id: "claude-haiku-4-5", api: "anthropic-messages" };
       vi.mocked(piAi.getModel).mockReturnValue(mockModel as any);
 
-      const result = resolveModel({ model: "claude-3-5-haiku" });
+      const result = resolveModel({ model: "claude-haiku-4-5" });
       
-      expect(piAi.getModel).toHaveBeenCalledWith("anthropic", "claude-3-5-haiku");
+      expect(piAi.getModel).toHaveBeenCalledWith("anthropic", "claude-haiku-4-5");
       expect(result).toEqual(mockModel);
     });
 
