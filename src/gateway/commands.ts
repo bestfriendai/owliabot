@@ -31,7 +31,7 @@ const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 const MODEL_ALIASES: Record<string, { provider: string; model: string }> = {
   sonnet: { provider: "anthropic", model: "claude-sonnet-4-5" },
   opus: { provider: "anthropic", model: "claude-opus-4-5" },
-  haiku: { provider: "anthropic", model: "claude-3-5-haiku" },
+  haiku: { provider: "anthropic", model: "claude-haiku-4-5" },
   "gpt-4o": { provider: "openai", model: "gpt-4o" },
   "gpt-4o-mini": { provider: "openai", model: "gpt-4o-mini" },
   gemini: { provider: "google", model: "gemini-2.5-pro" },

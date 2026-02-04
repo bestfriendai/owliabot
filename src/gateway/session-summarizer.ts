@@ -26,7 +26,7 @@ const MIN_USER_MESSAGES = 2;
 /** Default model for summarization (fast & cheap). */
 const DEFAULT_SUMMARY_MODEL: ModelConfig = {
   provider: "anthropic",
-  model: "claude-3-5-haiku",
+  model: "claude-haiku-4-5",
 };
 
 const SUMMARY_SYSTEM_PROMPT = `You are a conversation summarizer. Given a conversation transcript, produce a concise summary of key points, decisions, and action items.

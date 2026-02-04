@@ -18,11 +18,11 @@ const MODEL_ALIASES: Record<string, { provider: KnownProvider; model: string }> 
   // Anthropic aliases
   "sonnet": { provider: "anthropic", model: "claude-sonnet-4-5" },
   "opus": { provider: "anthropic", model: "claude-opus-4-5" },
-  "haiku": { provider: "anthropic", model: "claude-3-5-haiku" },
+  "haiku": { provider: "anthropic", model: "claude-haiku-4-5" },
   "claude-sonnet-4-5": { provider: "anthropic", model: "claude-sonnet-4-5" },
   "claude-opus-4-5": { provider: "anthropic", model: "claude-opus-4-5" },
   "claude-3-5-sonnet": { provider: "anthropic", model: "claude-3-5-sonnet" },
-  "claude-3-5-haiku": { provider: "anthropic", model: "claude-3-5-haiku" },
+  "claude-haiku-4-5": { provider: "anthropic", model: "claude-haiku-4-5" },
 
   // OpenAI aliases
   "gpt-4o": { provider: "openai", model: "gpt-4o" },

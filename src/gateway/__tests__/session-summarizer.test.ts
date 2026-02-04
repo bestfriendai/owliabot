@@ -76,7 +76,7 @@ describe("summarizeAndSave", () => {
       content: "- Discussed project setup\n- Decided on TypeScript",
       usage: { promptTokens: 100, completionTokens: 30 },
       provider: "anthropic",
-      model: "claude-3-5-haiku",
+      model: "claude-haiku-4-5",
     });
 
     const result = await summarizeAndSave({
@@ -107,7 +107,7 @@ describe("summarizeAndSave", () => {
       content: "- New summary point",
       usage: { promptTokens: 50, completionTokens: 10 },
       provider: "anthropic",
-      model: "claude-3-5-haiku",
+      model: "claude-haiku-4-5",
     });
 
     const result = await summarizeAndSave({
@@ -147,7 +147,7 @@ describe("summarizeAndSave", () => {
       content: "   ",
       usage: { promptTokens: 50, completionTokens: 1 },
       provider: "anthropic",
-      model: "claude-3-5-haiku",
+      model: "claude-haiku-4-5",
     });
 
     const result = await summarizeAndSave({
@@ -198,7 +198,7 @@ describe("summarizeAndSave", () => {
       content: "- Summary",
       usage: { promptTokens: 50, completionTokens: 10 },
       provider: "anthropic",
-      model: "claude-3-5-haiku",
+      model: "claude-haiku-4-5",
     });
 
     await summarizeAndSave({
