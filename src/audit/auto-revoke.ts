@@ -70,7 +70,8 @@ export class AutoRevokeService {
 
     try {
       switch (action) {
-        case "revoke-session-key":
+        case "revoke-session-key": {
+          const ruleDescription = this.detector.getRuleDescription(anomaly.ruleId);
           await this.handlers.revokeSessionKey(anomaly.ruleId);
           // Log the revocation
           if (trigger.sessionKeyId) {
@@ -82,9 +83,10 @@ export class AutoRevokeService {
             });
           }
           await this.handlers.notify(
-            `⚠️ Session Key automatically revoked: ${this.detector.getRuleAction(anomaly.ruleId)}`
+            `⚠️ Session Key automatically revoked — rule: ${anomaly.ruleId} (${ruleDescription ?? "unknown rule"})`
           );
           break;
+        }
 
         case "emergency-stop":
           await this.handlers.emergencyStop(anomaly.ruleId);

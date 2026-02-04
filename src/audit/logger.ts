@@ -3,11 +3,10 @@
  * @see docs/design/audit-strategy.md Section 9.1
  */
 
-import { appendFile, readFile, stat } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { ulid } from "ulid";
 import { redactParams } from "./redact.js";
 import { createLogger } from "../utils/logger.js";
-import type { Tier } from "../policy/types.js";
 
 const log = createLogger("audit");
 
@@ -153,29 +152,54 @@ export class AuditLogger {
   }
 
   /**
-   * Query recent entries (for anomaly detection)
+   * Query recent entries (for anomaly detection).
+   * Merges finalize records into their corresponding pre-log entries.
    */
   async queryRecent(limit = 100): Promise<AuditEntry[]> {
     try {
       const content = await readFile(this.logPath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
-      const entries: AuditEntry[] = [];
 
-      // Take last N lines
-      const recentLines = lines.slice(-limit);
+      // Two-pass: collect pre-log entries and finalize records, then merge
+      const preLogEntries = new Map<string, AuditEntry>();
+      const finalizeRecords = new Map<string, Record<string, unknown>>();
+      const insertionOrder: string[] = [];
+
+      // Take last N lines (use 2x limit to account for finalize records)
+      const recentLines = lines.slice(-(limit * 2));
       for (const line of recentLines) {
         try {
-          const entry = JSON.parse(line);
-          // Skip finalization records (they have _finalize field)
-          if (!("_finalize" in entry)) {
-            entries.push(entry as AuditEntry);
+          const parsed = JSON.parse(line);
+          if ("_finalize" in parsed) {
+            finalizeRecords.set(parsed._finalize as string, parsed);
+          } else if (parsed.id) {
+            preLogEntries.set(parsed.id, parsed as AuditEntry);
+            insertionOrder.push(parsed.id);
           }
         } catch (parseErr) {
           log.warn("Failed to parse audit line", parseErr);
         }
       }
 
-      return entries;
+      // Merge finalize data into pre-log entries
+      for (const [id, finalize] of finalizeRecords) {
+        const entry = preLogEntries.get(id);
+        if (entry) {
+          if (finalize.result) entry.result = finalize.result as AuditEntry["result"];
+          if (finalize.reason) entry.reason = finalize.reason as string;
+          if (finalize.duration !== undefined) entry.duration = finalize.duration as number;
+          if (finalize.txHash) entry.txHash = finalize.txHash as string;
+          if (finalize.finalizedAt) entry.finalizedAt = finalize.finalizedAt as string;
+        }
+      }
+
+      // Return entries in insertion order, capped at limit
+      const entries: AuditEntry[] = [];
+      for (const id of insertionOrder) {
+        const entry = preLogEntries.get(id);
+        if (entry) entries.push(entry);
+      }
+      return entries.slice(-limit);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return [];

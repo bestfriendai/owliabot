@@ -1,6 +1,11 @@
 /**
  * Cooldown tracker for tool execution rate limiting
  * @see docs/design/tier-policy.md Section 5.3
+ *
+ * NOTE: This tracker is **in-memory only** — all cooldown state is lost on
+ * process restart. This is acceptable for now (cooldowns are a soft safety
+ * net, not a hard security boundary), but should be persisted to disk or a
+ * shared store if cooldown bypass via restart becomes a concern.
  */
 
 import { createLogger } from "../utils/logger.js";

@@ -4,7 +4,7 @@
  */
 
 import { createReadStream } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { createGunzip } from "node:zlib";
 import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
@@ -236,15 +236,24 @@ export class AuditQueryService {
   ): Promise<string[]> {
     const files: string[] = [this.logPath];
 
-    // Add archived files if querying historical data
+    // Add archived files, filtering by date range when possible
     try {
       const archiveFiles = await readdir(this.archiveDir, { encoding: 'utf-8' });
       for (const file of archiveFiles) {
         if (file.startsWith("audit-") && file.endsWith(".jsonl.gz")) {
+          // Extract date from filename pattern: audit-YYYY-MM-DD.jsonl.gz
+          const dateMatch = file.match(/^audit-(\d{4}-\d{2}-\d{2})/);
+          if (dateMatch) {
+            const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z");
+            const fileDateStart = new Date(dateMatch[1] + "T00:00:00.000Z");
+            // Skip files outside the query date range
+            if (since && fileDate < since) continue;
+            if (until && fileDateStart > until) continue;
+          }
           files.push(`${this.archiveDir}/${file}`);
         }
       }
-    } catch (err) {
+    } catch {
       // Archive directory might not exist yet
       log.debug("No archive directory found");
     }

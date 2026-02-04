@@ -293,11 +293,12 @@ export async function executeToolCall(
 
   // Build escalation context using policy thresholds
   const policyThresholds = await policyEngine.getThresholds();
+  const signerTierValue = context.signer?.tier;
   const escalationContext: EscalationContext = {
     amountUsd,
     // Only mark session key as available if the signer is actually a session-key type
     // (not app-tier or contract signers)
-    sessionKey: context.signer && (context.signer as any).tier === "session-key"
+    sessionKey: signerTierValue === "session-key"
       ? {
           id: context.sessionKey,
           expired: false,
@@ -310,21 +311,30 @@ export async function executeToolCall(
   };
 
   // Helper: feed entry into anomaly detection for all outcomes
-  const feedAnomaly = async (result: AuditEntry["result"]) => {
+  const feedAnomaly = async (
+    result: AuditEntry["result"],
+    opts: {
+      id: string;
+      tier: AuditEntry["tier"];
+      effectiveTier: AuditEntry["effectiveTier"];
+      sessionKeyId?: string;
+    },
+  ) => {
     try {
       await autoRevokeService.onAuditEntry({
-        id: "pending",
+        id: opts.id,
         ts: new Date().toISOString(),
         version: 1,
         tool: call.name,
-        tier: 0 as any, // Will be set properly below
-        effectiveTier: 0 as any,
+        tier: opts.tier,
+        effectiveTier: opts.effectiveTier,
         securityLevel: tool.security.level,
         user: stableUserId,
         channel: "unknown",
         params: call.arguments as Record<string, unknown>,
         result,
         duration: Date.now() - startTime,
+        sessionKeyId: opts.sessionKeyId,
       });
     } catch (err) {
       log.warn("Anomaly detection failed", err);
@@ -351,34 +361,52 @@ export async function executeToolCall(
     });
 
     // 2. Check allowedUsers
-    // "assignee-only" is the default but assignee resolution is not yet implemented;
-    // skip enforcement for now to avoid bricking the bot. Only enforce explicit arrays.
-    if (policy.allowedUsers && Array.isArray(policy.allowedUsers)) {
-      const userId = options.userId ?? context.sessionKey;
-      if (!policy.allowedUsers.includes(userId)) {
-        log.warn(`User ${userId} not in allowedUsers for ${call.name}`);
+    const currentUserId = options.userId ?? context.sessionKey;
+    if (policy.allowedUsers) {
+      let userAllowed = false;
+
+      if (Array.isArray(policy.allowedUsers)) {
+        // Explicit list of allowed user IDs
+        userAllowed = policy.allowedUsers.includes(currentUserId);
+      } else if (policy.allowedUsers === "assignee-only") {
+        // Fail-closed for write/sign tools: assignee resolution not yet implemented.
+        // Read-only (tier none) tools are exempt — restricting them provides no security value.
+        // TODO: implement assignee ID resolution from config to allow the assignee through.
+        if (tool.security.level === "read" || decision.tier === "none") {
+          userAllowed = true;
+        } else {
+          log.warn(`allowedUsers "assignee-only" enforcement: denying ${call.name} (assignee resolution not implemented)`);
+          userAllowed = false;
+        }
+      }
+
+      if (!userAllowed) {
+        log.warn(`User ${currentUserId} not in allowedUsers for ${call.name}`);
         // Audit the denial
         const authAudit = await auditLogger.preLog({
           tool: call.name,
           tier: decision.tier,
           effectiveTier: decision.effectiveTier,
           securityLevel: tool.security.level,
-          user: userId,
+          user: currentUserId,
           channel: "unknown",
           params: call.arguments as Record<string, unknown>,
           amountUsd,
         });
         if (authAudit.ok) {
           await auditLogger.finalize(authAudit.id, "denied", "not-in-allowedUsers");
+          await feedAnomaly("denied", {
+            id: authAudit.id,
+            tier: decision.tier,
+            effectiveTier: decision.effectiveTier,
+          });
         }
-        await feedAnomaly("denied");
         return {
           success: false,
           error: `User not authorized for tool ${call.name}`,
         };
       }
     }
-    // TODO: enforce "assignee-only" once assignee ID resolution from config is implemented
 
     // 3. Check cooldown
     const cooldownCheck = cooldownTracker.check(call.name, policy);
@@ -396,8 +424,12 @@ export async function executeToolCall(
       });
       if (cooldownAudit.ok) {
         await auditLogger.finalize(cooldownAudit.id, "denied", cooldownCheck.reason);
+        await feedAnomaly("denied", {
+          id: cooldownAudit.id,
+          tier: decision.tier,
+          effectiveTier: decision.effectiveTier,
+        });
       }
-      await feedAnomaly("denied");
       return {
         success: false,
         error: cooldownCheck.reason,
@@ -426,11 +458,20 @@ export async function executeToolCall(
 
     auditEntryId = auditEntry.id;
 
+    // Derive sessionKeyId for anomaly tracking
+    const sessionKeyId = signerTierValue === "session-key" ? context.sessionKey : undefined;
+    const anomalyOpts = {
+      id: auditEntry.id,
+      tier: decision.tier,
+      effectiveTier: decision.effectiveTier,
+      sessionKeyId,
+    };
+
     // 4. Handle decision
     if (decision.action === "deny") {
       await auditLogger.finalize(auditEntry.id, "denied", decision.reason);
       auditFinalized = true;
-      await feedAnomaly("denied");
+      await feedAnomaly("denied", anomalyOpts);
       return {
         success: false,
         error: decision.reason ?? "Operation denied by policy",
@@ -440,7 +481,7 @@ export async function executeToolCall(
     if (decision.action === "escalate") {
       await auditLogger.finalize(auditEntry.id, "escalated", decision.reason);
       auditFinalized = true;
-      await feedAnomaly("escalated");
+      await feedAnomaly("escalated", anomalyOpts);
       return {
         success: false,
         error:
@@ -458,10 +499,23 @@ export async function executeToolCall(
         "confirmation-not-implemented"
       );
       auditFinalized = true;
-      await feedAnomaly("denied");
+      await feedAnomaly("denied", anomalyOpts);
       return {
         success: false,
         error: "Confirmation flow not yet implemented",
+      };
+    }
+
+    // 4b. Enforce tier→signer selection (P1-2)
+    // If policy requires session-key signing, verify the actual signer matches
+    if (decision.signerTier === "session-key" && signerTierValue !== "session-key") {
+      log.warn(`Signer tier mismatch: policy requires session-key but signer is ${signerTierValue ?? "null"}`);
+      await auditLogger.finalize(auditEntry.id, "escalated", "signer-tier-mismatch");
+      auditFinalized = true;
+      await feedAnomaly("escalated", anomalyOpts);
+      return {
+        success: false,
+        error: `Operation requires session-key signer but current signer is ${signerTierValue ?? "unavailable"}. Please create or activate a session key.`,
       };
     }
 
@@ -492,19 +546,9 @@ export async function executeToolCall(
     }
 
     // 8. Anomaly detection
-    await autoRevokeService.onAuditEntry({
+    await feedAnomaly(result.success ? "success" : "error", {
+      ...anomalyOpts,
       id: auditEntry.id,
-      ts: new Date().toISOString(),
-      version: 1,
-      tool: call.name,
-      tier: decision.tier,
-      effectiveTier: decision.effectiveTier,
-      securityLevel: tool.security.level,
-      user: stableUserId,
-      channel: "unknown",
-      params: call.arguments as Record<string, unknown>,
-      result: result.success ? "success" : "error",
-      duration,
     });
 
     log.info(`Tool ${call.name} completed: ${result.success}`, { duration });
@@ -523,7 +567,14 @@ export async function executeToolCall(
       }
     }
 
-    await feedAnomaly("error");
+    // Feed anomaly with best-available data
+    if (auditEntryId) {
+      await feedAnomaly("error", {
+        id: auditEntryId,
+        tier: "none",
+        effectiveTier: "none",
+      });
+    }
 
     return {
       success: false,

@@ -131,6 +131,10 @@ export class AnomalyDetector {
     return this.rules.find((r) => r.id === ruleId)?.action;
   }
 
+  getRuleDescription(ruleId: string): string | undefined {
+    return this.rules.find((r) => r.id === ruleId)?.description;
+  }
+
   addRule(rule: AnomalyRule): void {
     this.rules.push(rule);
   }

@@ -37,6 +37,9 @@ secrets.yaml
 auth.json
 .owlia_dev/
 
+# Runtime data (audit logs, session key logs)
+workspace/*.jsonl
+
 # codex
 .codex
 

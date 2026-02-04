@@ -62,8 +62,8 @@ export class EmergencyStop {
       // 3. Pause all tool execution
       await this.handlers.pauseAllToolExecution();
 
-      // 4. Write audit log
-      await this.auditLogger.preLog({
+      // 4. Write audit log (two-phase: preLog then finalize)
+      const auditResult = await this.auditLogger.preLog({
         tool: "system:emergency-stop",
         tier: 1,
         effectiveTier: 1,
@@ -71,8 +71,10 @@ export class EmergencyStop {
         user: triggeredBy,
         channel: "system",
         params: { reason, revokedKeys: revokedKeys.length },
-        result: "success",
       });
+      if (auditResult.ok) {
+        await this.auditLogger.finalize(auditResult.id, "success");
+      }
 
       // 5. Notify user
       await this.handlers.notify(
@@ -107,8 +109,8 @@ export class EmergencyStop {
       // 1. Resume tool execution
       await this.handlers.resumeAllToolExecution();
 
-      // 2. Write audit log
-      await this.auditLogger.preLog({
+      // 2. Write audit log (two-phase: preLog then finalize)
+      const auditResult = await this.auditLogger.preLog({
         tool: "system:emergency-resume",
         tier: 1,
         effectiveTier: 1,
@@ -116,8 +118,10 @@ export class EmergencyStop {
         user: authorizedBy,
         channel: "companion-app",
         params: {},
-        result: "success",
       });
+      if (auditResult.ok) {
+        await this.auditLogger.finalize(auditResult.id, "success");
+      }
 
       // 3. Notify user
       await this.handlers.notify(
