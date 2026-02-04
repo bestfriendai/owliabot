@@ -28,6 +28,22 @@ export class PolicyEngine {
   /**
    * Resolve policy for a tool (exact match -> wildcard -> fallback)
    */
+  /**
+   * Get loaded policy thresholds for building EscalationContext
+   */
+  async getThresholds(): Promise<{
+    tier3MaxUsd: number;
+    tier2MaxUsd: number;
+    tier2DailyUsd: number;
+  }> {
+    const config = await this.loader.load();
+    return {
+      tier3MaxUsd: config.thresholds.tier3MaxUsd,
+      tier2MaxUsd: config.thresholds.tier2MaxUsd,
+      tier2DailyUsd: config.thresholds.tier2DailyUsd,
+    };
+  }
+
   async resolve(toolName: string): Promise<ResolvedPolicy> {
     const config = await this.loader.load();
 

@@ -147,11 +147,38 @@ export class AuditQueryService {
   }
 
   /**
-   * Get single entry by ID
+   * Get single entry by ID (scans all logs including archives)
    */
   async getById(id: string): Promise<AuditEntry | null> {
-    const entries = await this.query({ limit: 1000 });
-    return entries.find((e) => e.id === id) || null;
+    const files = await this.resolveLogFiles();
+
+    for (const file of files) {
+      try {
+        const stream = file.endsWith(".gz")
+          ? createReadStream(file).pipe(createGunzip())
+          : createReadStream(file);
+
+        const rl = createInterface({ input: stream });
+
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line) as AuditEntry;
+            if ("_finalize" in entry) continue;
+            if (entry.id === id) {
+              rl.close();
+              return entry;
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      } catch (err) {
+        log.warn(`Failed to read log file ${file}`, err);
+      }
+    }
+
+    return null;
   }
 
   private matchesQuery(entry: AuditEntry, query: AuditQuery): boolean {

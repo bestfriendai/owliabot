@@ -7,7 +7,7 @@
 import { createLogger } from "../../utils/logger.js";
 import { PolicyEngine } from "../../policy/engine.js";
 import { CooldownTracker } from "../../policy/cooldown.js";
-import { AuditLogger } from "../../audit/logger.js";
+import { AuditLogger, type AuditEntry } from "../../audit/logger.js";
 import { SessionKeyLogger } from "../../audit/session-key-logger.js";
 import { AutoRevokeService } from "../../audit/auto-revoke.js";
 import { EmergencyStop } from "../../policy/emergency.js";
@@ -200,7 +200,8 @@ export async function executeToolCall(
 
   const startTime = Date.now();
 
-  // Build escalation context
+  // Build escalation context using policy thresholds (not hardcoded)
+  const policyThresholds = await policyEngine.getThresholds();
   const escalationContext: EscalationContext = {
     sessionKey: context.signer
       ? {
@@ -209,11 +210,7 @@ export async function executeToolCall(
           revoked: false,
         }
       : undefined,
-    thresholds: {
-      tier3MaxUsd: 5,
-      tier2MaxUsd: 50,
-      tier2DailyUsd: 200,
-    },
+    thresholds: policyThresholds,
     dailySpentUsd: 0, // TODO: Track from audit log
     consecutiveDenials: 0, // TODO: Track from recent audit entries
   };
@@ -273,9 +270,28 @@ export async function executeToolCall(
       };
     }
 
+    // Helper: feed entry into anomaly detection for all outcomes
+    const feedAnomaly = async (result: AuditEntry["result"]) => {
+      await autoRevokeService.onAuditEntry({
+        id: auditEntry.id,
+        ts: new Date().toISOString(),
+        version: 1,
+        tool: call.name,
+        tier: decision.tier,
+        effectiveTier: decision.effectiveTier,
+        securityLevel: tool.security.level,
+        user: context.sessionKey,
+        channel: "unknown",
+        params: call.arguments as Record<string, unknown>,
+        result,
+        duration: Date.now() - startTime,
+      });
+    };
+
     // 4. Handle decision
     if (decision.action === "deny") {
       await auditLogger.finalize(auditEntry.id, "denied", decision.reason);
+      await feedAnomaly("denied");
       return {
         success: false,
         error: decision.reason ?? "Operation denied by policy",
@@ -284,6 +300,7 @@ export async function executeToolCall(
 
     if (decision.action === "escalate") {
       await auditLogger.finalize(auditEntry.id, "escalated", decision.reason);
+      await feedAnomaly("escalated");
       return {
         success: false,
         error:
@@ -300,6 +317,7 @@ export async function executeToolCall(
         "denied",
         "confirmation-not-implemented"
       );
+      await feedAnomaly("denied");
       return {
         success: false,
         error: "Confirmation flow not yet implemented",
