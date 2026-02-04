@@ -87,3 +87,26 @@ session:
 | Remainder 传递 | ✅（作为新会话首条消息） | ✅（显示在确认消息中） |
 | 模型切换 (`/new sonnet`) | ✅ | ⏳ 未来可扩展 |
 | Greeting turn | ✅ | ✅ |
+| Memory summarization | ❌（依赖 agent 自身） | ✅ 自动 LLM 摘要 → `memory/YYYY-MM-DD.md` |
+
+## Memory Summarization
+
+执行 `/new` 时，如果当前会话有 ≥2 条用户消息，会自动：
+
+1. 读取当前 transcript
+2. 调用 LLM（默认 haiku，可通过 `summaryModel` 配置）生成摘要
+3. 追加到 `workspace/memory/YYYY-MM-DD.md`
+4. 然后才清除 transcript
+
+**设计决策：**
+- **非阻塞失败**：LLM 或写入失败不会阻止 `/new` 命令完成
+- **阈值**：<2 条用户消息时跳过（不值得总结）
+- **模型**：默认 `claude-3-5-haiku`（快+便宜），可配置
+- **确认**：成功时在 greeting 中显示 📝 提示
+
+### 集成时需传入
+
+`tryHandleCommand()` 新增可选参数：
+- `workspacePath`: workspace 根路径（不传则跳过 summarization）
+- `summaryModel`: 覆盖默认摘要模型
+- `timezone`: 日期格式化时区
