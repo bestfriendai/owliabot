@@ -247,7 +247,9 @@ async function handleMessage(
           sessionKey,
           agentId,
           signer: null,
-          config: {},
+          config: {
+            memorySearch: config.memorySearch,
+          },
         },
         writeGateChannel: writeGateChannels.get(ctx.channel),
         securityConfig: config.security,

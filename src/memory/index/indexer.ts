@@ -79,7 +79,13 @@ async function indexFileMemory(params: {
   );
 
   for (const file of files) {
-    const content = await readFile(file.absPath, "utf-8");
+    let content: string;
+    try {
+      content = await readFile(file.absPath, "utf-8");
+    } catch {
+      // Skip files that disappear or become unreadable during indexing.
+      continue;
+    }
     const hash = hashContent(content);
     const row = selectFile.get(file.relPath) as { hash: string } | undefined;
     const hashChanged = !row || row.hash !== hash;
