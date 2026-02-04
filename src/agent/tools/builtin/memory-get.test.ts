@@ -24,32 +24,32 @@ describe("memory_get tool security boundary", () => {
     const tool = createMemoryGetTool(dir);
 
     // Allowed: MEMORY.md
-    const ok1 = await tool.execute({ path: "MEMORY.md", from_line: 1, num_lines: 2 });
+    const ok1 = await tool.execute({ path: "MEMORY.md", from_line: 1, num_lines: 2 }, {} as any);
     expect(ok1.success).toBe(true);
     expect((ok1 as any).data.content).toContain("line1");
 
     // Allowed: memory/a.md
-    const ok2 = await tool.execute({ path: "memory/a.md", from_line: 2, num_lines: 2 });
+    const ok2 = await tool.execute({ path: "memory/a.md", from_line: 2, num_lines: 2 }, {} as any);
     expect(ok2.success).toBe(true);
     expect((ok2 as any).data.content).toContain("a2");
 
     // Blocked: NOTES.md
-    const bad1 = await tool.execute({ path: "NOTES.md" });
+    const bad1 = await tool.execute({ path: "NOTES.md" }, {} as any);
     expect(bad1.success).toBe(false);
     expect((bad1 as any).error).toBe("path required");
 
     // Blocked: traversal
-    const bad2 = await tool.execute({ path: "../MEMORY.md" });
+    const bad2 = await tool.execute({ path: "../MEMORY.md" }, {} as any);
     expect(bad2.success).toBe(false);
     expect((bad2 as any).error).toBe("path required");
 
     // Blocked: non-md
-    const bad3 = await tool.execute({ path: "memory/a.txt" });
+    const bad3 = await tool.execute({ path: "memory/a.txt" }, {} as any);
     expect(bad3.success).toBe(false);
     expect((bad3 as any).error).toBe("path required");
 
     // Blocked: symlink file
-    const bad4 = await tool.execute({ path: "memory/link.md" });
+    const bad4 = await tool.execute({ path: "memory/link.md" }, {} as any);
     expect(bad4.success).toBe(false);
     expect((bad4 as any).error).toBe("path required");
   });
@@ -67,7 +67,7 @@ describe("memory_get tool security boundary", () => {
 
     const tool = createMemoryGetTool(dir);
 
-    const res = await tool.execute({ path: "memory/secret.md" });
+    const res = await tool.execute({ path: "memory/secret.md" }, {} as any);
     expect(res.success).toBe(false);
     expect((res as any).error).toBe("path required");
   });

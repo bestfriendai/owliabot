@@ -73,18 +73,18 @@ export function createMemorySearchTool(workspacePath: string): ToolDefinition {
         rawIndexing.minIntervalMs >= 0
           ? Math.floor(rawIndexing.minIntervalMs)
           : 5 * 60 * 1000;
-      const indexingSources = Array.isArray(rawIndexing.sources)
-        ? rawIndexing.sources
-            .filter((s: unknown) => typeof s === "string")
-            .map((s: string) => s.trim())
-            .filter((s: string) => s === "files" || s === "transcripts")
+      const indexingSources: Array<"files" | "transcripts"> | undefined = Array.isArray(rawIndexing.sources)
+        ? (rawIndexing.sources as unknown[])
+            .filter((s): s is string => typeof s === "string")
+            .map((s) => s.trim())
+            .filter((s): s is "files" | "transcripts" => s === "files" || s === "transcripts")
         : undefined;
       const indexing = {
         autoIndex,
         minIntervalMs,
         sources:
           indexingSources && indexingSources.length > 0
-            ? Array.from(new Set(indexingSources))
+            ? (Array.from(new Set(indexingSources)) as Array<"files" | "transcripts">)
             : undefined,
       };
 
