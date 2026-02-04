@@ -1,23 +1,39 @@
-export type EmbeddingProviderId = "openai" | "gemini" | "local";
+export type MemorySearchProviderId = "sqlite" | "naive";
+
+export type MemorySearchSourceId = "files" | "transcripts";
 
 export interface MemorySearchConfig {
+  /**
+   * When false, the memory_search tool should not access local files/DB.
+   * (Fail-closed default is handled by config schema.)
+   */
   enabled: boolean;
-  provider: EmbeddingProviderId;
-  model?: string;
-  /** Optional fallback provider; "none" disables fallback */
-  fallback: EmbeddingProviderId | "none";
+
+  /** Primary backend used by memory_search. */
+  provider: MemorySearchProviderId;
+
+  /** Optional fallback backend used only if the primary is unavailable/errors. */
+  fallback: MemorySearchProviderId | "none";
+
   store: {
     /** Path to sqlite store; supports {agentId} token. */
     path: string;
   };
-  /** Additional directories/files to index (future use). */
-  extraPaths: string[];
-}
 
-export interface EmbeddingProviderStatus {
-  ok: boolean;
-  provider: EmbeddingProviderId;
-  model?: string;
-  reason?: string;
-  fallbackFrom?: EmbeddingProviderId;
+  /** Additional directories/files to allow (scanned + included in allowlist). */
+  extraPaths: string[];
+
+  /** Which sources to search/index. */
+  sources: MemorySearchSourceId[];
+
+  /**
+   * Indexing behavior for the sqlite provider.
+   * Defaults are fail-closed (autoIndex=false).
+   */
+  indexing?: {
+    autoIndex: boolean;
+    minIntervalMs: number;
+    /** Optional override for which sources to index (defaults to `sources`). */
+    sources?: MemorySearchSourceId[];
+  };
 }

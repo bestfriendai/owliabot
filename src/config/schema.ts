@@ -87,9 +87,11 @@ const groupSchema = z
 const memorySearchSchema = z
   .object({
     enabled: z.boolean().default(false),
-    provider: z.enum(["openai", "gemini", "local"]).default("openai"),
-    model: z.string().optional(),
-    fallback: z.enum(["openai", "gemini", "local", "none"]).default("none"),
+
+    // Memory-search backend (not embedding provider).
+    provider: z.enum(["sqlite", "naive"]).default("sqlite"),
+    fallback: z.enum(["sqlite", "naive", "none"]).default("none"),
+
     store: z
       .object({
         path: z
@@ -98,14 +100,41 @@ const memorySearchSchema = z
           .default("~/.owliabot/memory/{agentId}.sqlite"),
       })
       .default({ path: "~/.owliabot/memory/{agentId}.sqlite" }),
+
     extraPaths: z.array(z.string()).default([]),
+
+    // Which sources should be searched/indexed.
+    // Default: only workspace memory files.
+    sources: z
+      .array(z.enum(["files", "transcripts"]).catch("files"))
+      .default(["files"]),
+
+    indexing: z
+      .object({
+        /**
+         * When true, attempt to build/refresh the sqlite index on-demand before a
+         * sqlite search (fail-closed; will never read outside allowlists).
+         */
+        autoIndex: z.boolean().default(false),
+
+        /** Minimum time between indexing attempts for the same DB path. */
+        minIntervalMs: z.number().int().nonnegative().default(5 * 60 * 1000),
+
+        /** Optional override for which sources to index (defaults to memorySearch.sources). */
+        sources: z
+          .array(z.enum(["files", "transcripts"]).catch("files"))
+          .optional(),
+      })
+      .default({ autoIndex: false, minIntervalMs: 5 * 60 * 1000 }),
   })
   .default({
     enabled: false,
-    provider: "openai",
+    provider: "sqlite",
     fallback: "none",
     store: { path: "~/.owliabot/memory/{agentId}.sqlite" },
     extraPaths: [],
+    sources: ["files"],
+    indexing: { autoIndex: false, minIntervalMs: 5 * 60 * 1000 },
   });
 
 export const configSchema = z.object({

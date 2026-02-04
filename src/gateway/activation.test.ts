@@ -17,7 +17,7 @@ describe("shouldHandleMessage", () => {
     const config = makeConfig({
       discord: {
         token: "x",
-        allowList: ["u-allowed"],
+        memberAllowList: ["u-allowed"],
         channelAllowList: ["c1"],
       },
     });
@@ -35,7 +35,7 @@ describe("shouldHandleMessage", () => {
 
   it("allows allowList user in discord guild when mentioned", () => {
     const config = makeConfig({
-      discord: { token: "x", allowList: ["u1"] },
+      discord: { token: "x", memberAllowList: ["u1"] },
     });
 
     const ctx: any = {
@@ -167,7 +167,7 @@ describe("shouldHandleMessage", () => {
 
   it("blocks channelAllowList channel when user not in allowList", () => {
     const config = makeConfig({
-      discord: { token: "x", allowList: ["u-allowed"], channelAllowList: ["c-allowed"] },
+      discord: { token: "x", memberAllowList: ["u-allowed"], channelAllowList: ["c-allowed"] },
     });
 
     const ctx: any = {

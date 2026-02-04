@@ -115,6 +115,12 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         try {
           const fh = await open(resolved.absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
           try {
+            // Defense-in-depth: fstat the fd to verify it's a regular file.
+            // This closes the TOCTOU gap between resolveAllowedPath() and open().
+            const fdStat = await fh.stat();
+            if (!fdStat.isFile()) {
+              throw Object.assign(new Error("Not a regular file"), { code: "ELOOP" });
+            }
             content = await fh.readFile({ encoding: "utf-8" });
           } finally {
             await fh.close();
@@ -125,6 +131,12 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
           // Never fallback for symlink-related errors (e.g., ELOOP) or permission errors.
           const okToFallback = code === "EINVAL" || code === "ENOSYS" || code === "EOPNOTSUPP";
           if (!okToFallback) throw err;
+          // Fallback: re-verify with lstat before reading (best-effort TOCTOU mitigation
+          // on platforms without O_NOFOLLOW).
+          const fallbackStat = await lstat(resolved.absPath);
+          if (fallbackStat.isSymbolicLink() || !fallbackStat.isFile()) {
+            throw Object.assign(new Error("Not a regular file"), { code: "ELOOP" });
+          }
           content = await readFile(resolved.absPath, "utf-8");
         }
         const lines = content.split("\n");
