@@ -35,8 +35,10 @@ import {
 } from "../security/write-gate-adapter.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
 import type { ToolResult } from "../agent/tools/interface.js";
-import { createCronService } from "../cron/service.js";
+import { createCronService } from "../cron/legacy-service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
+import { createCronIntegration } from "./cron-integration.js";
+import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills } from "../skills/index.js";
 import { join } from "node:path";
@@ -143,12 +145,12 @@ export async function startGateway(
     channels,
   });
 
-  // Create cron service
-  const cron = createCronService();
+  // Create legacy cron service (for heartbeat scheduling)
+  const legacyCron = createCronService();
 
-  // Schedule heartbeat if enabled
+  // Schedule heartbeat if enabled (using legacy cron for now)
   if (config.heartbeat?.enabled) {
-    cron.schedule({
+    legacyCron.schedule({
       id: "heartbeat",
       pattern: config.heartbeat.cron,
       handler: async () => {
@@ -158,9 +160,29 @@ export async function startGateway(
     log.info(`Heartbeat scheduled: ${config.heartbeat.cron}`);
   }
 
+  // Create new CronService (OpenClaw-compatible) with integration
+  const cronIntegration = createCronIntegration({
+    config,
+    onSystemEvent: (text, opts) => {
+      log.debug({ text: text.slice(0, 50), agentId: opts?.agentId }, "system event enqueued");
+    },
+    onHeartbeatRequest: (reason) => {
+      log.debug({ reason }, "heartbeat requested");
+    },
+    // runHeartbeatOnce and runIsolatedAgentJob will be wired when session infra is ready
+  });
+
+  // Register cron tool
+  tools.register(createCronTool({ cronService: cronIntegration.cronService }));
+
+  // Start cron service
+  await cronIntegration.start();
+  log.info("Cron service started");
+
   // Return cleanup function
   return async () => {
-    cron.stopAll();
+    cronIntegration.stop();
+    legacyCron.stopAll();
     await channels.stopAll();
     log.info("Gateway stopped");
   };

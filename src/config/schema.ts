@@ -162,11 +162,19 @@ export const configSchema = z.object({
   // Timezone (used in prompts)
   timezone: z.string().default("UTC"),
 
-  // Cron
+  // Heartbeat (legacy cron scheduling)
   heartbeat: z
     .object({
       enabled: z.boolean().default(false),
       cron: z.string().default("0 * * * *"), // hourly
+    })
+    .optional(),
+
+  // Cron scheduler (OpenClaw-compatible)
+  cron: z
+    .object({
+      enabled: z.boolean().default(true),
+      store: z.string().optional(), // defaults to ~/.owliabot/cron/jobs.json
     })
     .optional(),
 

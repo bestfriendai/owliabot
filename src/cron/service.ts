@@ -1,64 +1,61 @@
-/**
- * Cron service for scheduled tasks
- * @see design.md Section 4.1
- */
+import * as ops from "./service/ops.js";
+import { createCronServiceState } from "./service/state.js";
+import type {
+  CronDeps,
+  CronJob,
+  CronJobCreateInput,
+  CronJobPatch,
+  CronRunMode,
+} from "./types.js";
+import type { CronStatusResult, CronRunLogEntry } from "./service/ops.js";
 
-import { Cron } from "croner";
-import { createLogger } from "../utils/logger.js";
+export class CronService {
+  private state;
 
-const log = createLogger("cron");
+  constructor(deps: CronDeps) {
+    this.state = createCronServiceState(deps);
+  }
 
-export interface CronJob {
-  id: string;
-  pattern: string;
-  handler: () => Promise<void>;
-}
+  async start(): Promise<void> {
+    await ops.start(this.state);
+  }
 
-export interface CronService {
-  schedule(job: CronJob): void;
-  stop(id: string): void;
-  stopAll(): void;
-}
+  stop(): void {
+    ops.stop(this.state);
+  }
 
-export function createCronService(): CronService {
-  const jobs = new Map<string, Cron>();
+  async status(): Promise<CronStatusResult> {
+    return await ops.status(this.state);
+  }
 
-  return {
-    schedule(job: CronJob): void {
-      if (jobs.has(job.id)) {
-        log.warn(`Job ${job.id} already exists, replacing...`);
-        jobs.get(job.id)?.stop();
-      }
+  async list(opts?: { includeDisabled?: boolean }): Promise<CronJob[]> {
+    return await ops.list(this.state, opts);
+  }
 
-      const cronJob = new Cron(job.pattern, async () => {
-        log.info(`Running cron job: ${job.id}`);
-        try {
-          await job.handler();
-          log.info(`Cron job ${job.id} completed`);
-        } catch (err) {
-          log.error(`Cron job ${job.id} failed`, err);
-        }
-      });
+  async add(input: CronJobCreateInput): Promise<CronJob> {
+    return await ops.add(this.state, input);
+  }
 
-      jobs.set(job.id, cronJob);
-      log.info(`Scheduled cron job: ${job.id} (${job.pattern})`);
-    },
+  async update(id: string, patch: CronJobPatch): Promise<CronJob> {
+    return await ops.update(this.state, id, patch);
+  }
 
-    stop(id: string): void {
-      const job = jobs.get(id);
-      if (job) {
-        job.stop();
-        jobs.delete(id);
-        log.info(`Stopped cron job: ${id}`);
-      }
-    },
+  async remove(id: string): Promise<{ ok: boolean; removed: boolean }> {
+    return await ops.remove(this.state, id);
+  }
 
-    stopAll(): void {
-      for (const [id, job] of jobs) {
-        job.stop();
-        log.info(`Stopped cron job: ${id}`);
-      }
-      jobs.clear();
-    },
-  };
+  async run(
+    id: string,
+    mode?: CronRunMode,
+  ): Promise<{ ok: boolean; ran: boolean; reason?: string }> {
+    return await ops.run(this.state, id, mode);
+  }
+
+  wake(opts: { text: string; mode?: "now" | "next-heartbeat" }): { ok: boolean } {
+    return ops.wakeNow(this.state, opts);
+  }
+
+  async runs(jobId: string, opts?: { limit?: number }): Promise<CronRunLogEntry[]> {
+    return await ops.runs(this.state, jobId, opts);
+  }
 }
