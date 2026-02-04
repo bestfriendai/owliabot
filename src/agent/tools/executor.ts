@@ -197,9 +197,9 @@ async function computeAuditContext(
     });
 
     let consecutiveDenials = 0;
-    // Entries are in chronological order, reverse to check most recent first
-    for (let i = recentEntries.length - 1; i >= 0; i--) {
-      if (recentEntries[i].result === "denied") {
+    // Entries are already newest-first from query, iterate from start
+    for (const entry of recentEntries) {
+      if (entry.result === "denied") {
         consecutiveDenials++;
       } else {
         break;

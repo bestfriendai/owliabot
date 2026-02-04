@@ -105,6 +105,25 @@ export class PolicyEngine {
         effectiveTier = 2;
         log.info(`Amount exceeds Tier 3 limit, escalating ${toolName} to Tier 2`);
       }
+      // Enforce global Tier 2 max amount threshold
+      if (
+        effectiveTier === 2 &&
+        context.amountUsd > context.thresholds.tier2MaxUsd
+      ) {
+        effectiveTier = 1;
+        log.info(
+          `Amount exceeds Tier 2 max (${context.thresholds.tier2MaxUsd}), escalating ${toolName} to Tier 1`
+        );
+        return {
+          action: "escalate",
+          tier: policy.tier,
+          effectiveTier: 1,
+          reason: "tier2-max-exceeded",
+          signerTier: "app",
+          confirmationChannel: "companion-app",
+        };
+      }
+      // Per-tool escalateAbove override
       if (
         effectiveTier === 2 &&
         policy.escalateAbove?.usd &&
