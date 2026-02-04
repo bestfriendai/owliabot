@@ -21,4 +21,4 @@ export type {
   CronStore,
 } from "./types.js";
 
-export type { CronStatusResult } from "./service/ops.js";
+export type { CronStatusResult, CronRunLogEntry } from "./service/ops.js";

@@ -10,6 +10,7 @@ import {
 import { locked } from "./locked.js";
 import { ensureLoaded, persist, warnIfDisabled } from "./store.js";
 import { armTimer, emit, executeJob, stopTimer, wake } from "./timer.js";
+import { readCronRunLogEntries, resolveCronRunLogPath } from "../run-log.js";
 import type { CronJob, CronJobCreateInput, CronJobPatch, CronRunMode } from "../types.js";
 import type { CronServiceState } from "./state.js";
 
@@ -189,4 +190,28 @@ export function wakeNow(
   opts: { text: string; mode?: "now" | "next-heartbeat" },
 ): { ok: boolean } {
   return wake(state, opts);
+}
+
+export interface CronRunLogEntry {
+  ts: number;
+  jobId: string;
+  action: string;
+  status: string;
+  error?: string;
+  summary?: string;
+  runAtMs: number;
+  durationMs: number;
+  nextRunAtMs?: number;
+}
+
+export async function runs(
+  state: CronServiceState,
+  jobId: string,
+  opts?: { limit?: number },
+): Promise<CronRunLogEntry[]> {
+  const filePath = resolveCronRunLogPath({
+    storePath: state.deps.storePath,
+    jobId,
+  });
+  return await readCronRunLogEntries(filePath, { limit: opts?.limit, jobId });
 }

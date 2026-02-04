@@ -7,7 +7,7 @@ import type {
   CronJobPatch,
   CronRunMode,
 } from "./types.js";
-import type { CronStatusResult } from "./service/ops.js";
+import type { CronStatusResult, CronRunLogEntry } from "./service/ops.js";
 
 export class CronService {
   private state;
@@ -53,5 +53,9 @@ export class CronService {
 
   wake(opts: { text: string; mode?: "now" | "next-heartbeat" }): { ok: boolean } {
     return ops.wakeNow(this.state, opts);
+  }
+
+  async runs(jobId: string, opts?: { limit?: number }): Promise<CronRunLogEntry[]> {
+    return await ops.runs(this.state, jobId, opts);
   }
 }
