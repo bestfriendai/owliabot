@@ -17,13 +17,64 @@ vi.mock("../../../security/write-gate.js", () => ({
   createWriteGate: vi.fn(),
 }));
 
+// Create mock instances for policy/audit dependencies
+function createMockDeps() {
+  return {
+    policyEngine: {
+      decide: vi.fn(async () => ({
+        action: "allow" as const,
+        tier: "none" as const,
+        effectiveTier: "none" as const,
+        signerTier: "none" as const,
+      })),
+      resolve: vi.fn(async () => ({
+        tier: "none" as const,
+        requireConfirmation: false,
+        confirmationChannel: "inline" as const,
+        allowedUsers: undefined,
+        timeout: 120,
+      })),
+      getThresholds: vi.fn(async () => ({
+        tier3MaxUsd: 5,
+        tier2MaxUsd: 50,
+        tier2DailyUsd: 200,
+      })),
+    } as any,
+    auditLogger: {
+      preLog: vi.fn(async () => ({ ok: true, id: "audit-test-1" })),
+      finalize: vi.fn(async () => {}),
+      queryRecent: vi.fn(async () => []),
+      isDegraded: vi.fn(() => false),
+    } as any,
+    auditQueryService: {
+      query: vi.fn(async () => []),
+      getStats: vi.fn(async () => ({})),
+      getById: vi.fn(async () => null),
+    } as any,
+    cooldownTracker: {
+      check: vi.fn(() => ({ allowed: true })),
+      record: vi.fn(),
+    } as any,
+    autoRevokeService: {
+      onAuditEntry: vi.fn(async () => {}),
+    } as any,
+    emergencyStop: {
+      isStopped: vi.fn(() => false),
+      activate: vi.fn(async () => {}),
+      deactivate: vi.fn(async () => {}),
+    } as any,
+  };
+}
+
 describe("executor", () => {
   let registry: ToolRegistry;
   let mockContext: Omit<ToolContext, "requestConfirmation">;
+  let mockDeps: ReturnType<typeof createMockDeps>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     registry = new ToolRegistry();
+    mockDeps = createMockDeps();
     mockContext = {
       sessionKey: "test:session",
       agentId: "agent-1",
@@ -46,7 +97,7 @@ describe("executor", () => {
 
       const result = await executeToolCall(
         { id: "call_1", name: "echo", arguments: { message: "hello" } },
-        { registry, context: mockContext }
+        { registry, context: mockContext, ...mockDeps }
       );
 
       expect(result.success).toBe(true);
@@ -57,7 +108,7 @@ describe("executor", () => {
     it("should return error for unknown tool", async () => {
       const result = await executeToolCall(
         { id: "call_1", name: "unknown", arguments: {} },
-        { registry, context: mockContext }
+        { registry, context: mockContext, ...mockDeps }
       );
 
       expect(result.success).toBe(false);
@@ -90,6 +141,7 @@ describe("executor", () => {
           writeGateChannel,
           workspacePath: "/workspace",
           userId: "user123",
+          ...mockDeps,
         }
       );
 
@@ -124,6 +176,7 @@ describe("executor", () => {
           writeGateChannel,
           workspacePath: "/workspace",
           userId: "user123",
+          ...mockDeps,
         }
       );
 
@@ -145,7 +198,7 @@ describe("executor", () => {
 
       const result = await executeToolCall(
         { id: "call_1", name: "edit_file", arguments: { path: "test.txt" } },
-        { registry, context: mockContext }
+        { registry, context: mockContext, ...mockDeps }
       );
 
       expect(result.success).toBe(false);
@@ -168,7 +221,7 @@ describe("executor", () => {
 
       const result = await executeToolCall(
         { id: "call_1", name: "failing_tool", arguments: {} },
-        { registry, context: mockContext }
+        { registry, context: mockContext, ...mockDeps }
       );
 
       expect(result.success).toBe(false);
@@ -205,6 +258,7 @@ describe("executor", () => {
       const results = await executeToolCalls(calls, {
         registry,
         context: mockContext,
+        ...mockDeps,
       });
 
       expect(results.size).toBe(2);
@@ -245,7 +299,11 @@ describe("executor", () => {
         { id: "call_2", name: "tool2", arguments: {} },
       ];
 
-      await executeToolCalls(calls, { registry, context: mockContext });
+      await executeToolCalls(calls, {
+        registry,
+        context: mockContext,
+        ...mockDeps,
+      });
 
       expect(executionOrder).toEqual([1, 2]);
     });

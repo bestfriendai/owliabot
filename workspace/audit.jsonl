@@ -10,3 +10,11 @@
 {"_finalize":"01KGKC32655EJG384F4FEH7RZ5","ts":"2026-02-04T03:45:43.623Z","result":"success","duration":20}
 {"id":"01KGKCC8YZ0HT53RNWEQ38C6NX","ts":"2026-02-04T03:50:45.471Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:dev1","channel":"unknown","params":{"text":"hi"}}
 {"_finalize":"01KGKCC8YZ0HT53RNWEQ38C6NX","ts":"2026-02-04T03:50:45.472Z","result":"success","duration":19}
+{"id":"01KGKS8PKPQBFBYCCWGV2VNCHH","ts":"2026-02-04T07:35:59.862Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:dev1","channel":"unknown","params":{"text":"hi"}}
+{"_finalize":"01KGKS8PKPQBFBYCCWGV2VNCHH","ts":"2026-02-04T07:35:59.863Z","result":"success","duration":24}
+{"id":"01KGKS8TBQZEAX6VRQV3RVV2KR","ts":"2026-02-04T07:36:03.704Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:device-e2e-1","channel":"unknown","params":{"message":"hello"}}
+{"_finalize":"01KGKS8TBQZEAX6VRQV3RVV2KR","ts":"2026-02-04T07:36:03.705Z","result":"success","duration":15}
+{"id":"01KGKS9R7RS0SR1YH6514AQY0Y","ts":"2026-02-04T07:36:34.297Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:dev1","channel":"unknown","params":{"text":"hi"}}
+{"_finalize":"01KGKS9R7RS0SR1YH6514AQY0Y","ts":"2026-02-04T07:36:34.298Z","result":"success","duration":34}
+{"id":"01KGKS9VXWWASKRCK0GXNJ8705","ts":"2026-02-04T07:36:38.076Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:device-e2e-1","channel":"unknown","params":{"message":"hello"}}
+{"_finalize":"01KGKS9VXWWASKRCK0GXNJ8705","ts":"2026-02-04T07:36:38.077Z","result":"success","duration":14}
