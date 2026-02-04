@@ -93,8 +93,9 @@ export class SessionKeyLogger {
       }
 
       // Find keys that are not revoked or expired
+      const inactiveStates = ["revoked", "expired", "rotated", "limit-reached"];
       const activeKeyIds = [...keyStates.entries()]
-        .filter(([_, state]) => !["revoked", "expired"].includes(state))
+        .filter(([_, state]) => !inactiveStates.includes(state))
         .map(([id]) => id);
 
       // Return the creation events for active keys

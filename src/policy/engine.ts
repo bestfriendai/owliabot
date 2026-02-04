@@ -125,10 +125,11 @@ export class PolicyEngine {
       }
     }
 
-    // 3. Daily limit check
+    // 3. Daily limit check (include pending amount)
+    const effectiveDailySpent = context.dailySpentUsd + (context.amountUsd ?? 0);
     if (
       effectiveTier === 2 &&
-      context.dailySpentUsd > context.thresholds.tier2DailyUsd
+      effectiveDailySpent > context.thresholds.tier2DailyUsd
     ) {
       log.warn(
         `Daily spending limit exceeded, escalating ${toolName} to Tier 1`
