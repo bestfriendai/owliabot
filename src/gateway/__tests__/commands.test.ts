@@ -127,7 +127,7 @@ describe("resolveModelFromRemainder", () => {
     });
     expect(resolveModelFromRemainder("haiku")).toEqual({
       provider: "anthropic",
-      model: "claude-3-5-haiku",
+      model: "claude-haiku-4-5",
       alias: "haiku",
     });
   });
@@ -341,7 +341,7 @@ describe("tryHandleCommand", () => {
     const result = await tryHandleCommand(makeContext(ctx));
 
     expect(result.handled).toBe(true);
-    expect(channels.sent[0].text).toContain("anthropic/claude-3-5-haiku");
+    expect(channels.sent[0].text).toContain("anthropic/claude-haiku-4-5");
   });
 
   it("should parse provider/model format", async () => {
