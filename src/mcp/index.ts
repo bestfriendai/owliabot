@@ -187,6 +187,8 @@ export async function createMCPTools(
     async refreshTools(): Promise<ToolDefinition[]> {
       allTools = [];
       for (const [name, adapter] of adapters) {
+        const client = clients.get(name);
+        client?.invalidateToolsCache();
         adapter.invalidateCache();
         try {
           const tools = await adapter.getTools();

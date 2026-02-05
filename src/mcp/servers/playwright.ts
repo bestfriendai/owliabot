@@ -17,7 +17,7 @@ import type { MCPServerConfig, MCPSecurityOverride } from "../types.js";
 export const playwrightServerConfig: MCPServerConfig = {
   name: "playwright",
   command: "npx",
-  args: ["@anthropic/mcp-server-playwright"],
+  args: ["--yes", "@anthropic/mcp-server-playwright@latest"],
   transport: "stdio",
   env: {
     // Run headless by default
@@ -146,7 +146,7 @@ export function getPlaywrightPreset(options?: {
  *   servers:
  *     - name: playwright
  *       command: npx
- *       args: ["@anthropic/mcp-server-playwright"]
+ *       args: ["--yes", "@anthropic/mcp-server-playwright@latest"]
  *       transport: stdio
  *       env:
  *         PLAYWRIGHT_HEADLESS: "true"

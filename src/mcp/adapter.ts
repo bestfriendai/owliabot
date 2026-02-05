@@ -55,6 +55,7 @@ export class MCPToolAdapter {
     this.client = options.client;
     this.securityOverrides = options.securityOverrides ?? {};
     this.timeout = options.timeout ?? 30000;
+    this.client.onToolsChanged(() => this.invalidateCache());
   }
 
   /**
@@ -182,6 +183,12 @@ export class MCPToolAdapter {
     // Apply heuristic defaults based on tool name patterns
     const lowerName = originalName.toLowerCase();
     
+    // Tools that are likely read-only
+    const readPrefixes = [
+      "read", "get", "list", "search", "fetch", "query", "check",
+      "status", "health", "describe",
+    ];
+
     // Tools that likely modify state
     const writePrefixes = [
       "write", "create", "delete", "remove", "update", "set",
@@ -196,8 +203,14 @@ export class MCPToolAdapter {
       }
     }
 
-    // Default to read-only (safe default)
-    return { level: "read" };
+    for (const prefix of readPrefixes) {
+      if (lowerName.includes(prefix)) {
+        return { level: "read" };
+      }
+    }
+
+    // Default to write for unknown tools (safer default)
+    return { level: "write" };
   }
 
   /**
@@ -306,6 +319,7 @@ function withTimeout<T>(
   message: string
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout;
+  promise.catch(() => {});
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => reject(new Error(message)), ms);
   });

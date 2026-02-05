@@ -26,7 +26,7 @@ export const providerSchema = z
         "baseUrl is required when provider id is 'openai-compatible'. " +
         "Example: http://localhost:11434/v1 for Ollama",
       path: ["baseUrl"],
-    }
+    },
   );
 
 export const telegramConfigSchema = z.object({
@@ -63,7 +63,10 @@ export const systemCapabilitySchema = z
         commandAllowList: z.array(z.string()).default([]),
         envAllowList: z.array(z.string()).default(["PATH", "LANG"]),
         timeoutMs: z.number().int().default(60_000),
-        maxOutputBytes: z.number().int().default(256 * 1024),
+        maxOutputBytes: z
+          .number()
+          .int()
+          .default(256 * 1024),
       })
       .default({
         commandAllowList: [],
@@ -77,7 +80,10 @@ export const systemCapabilitySchema = z
         domainDenyList: z.array(z.string()).default([]),
         allowPrivateNetworks: z.boolean().default(false),
         timeoutMs: z.number().int().default(15_000),
-        maxResponseBytes: z.number().int().default(512 * 1024),
+        maxResponseBytes: z
+          .number()
+          .int()
+          .default(512 * 1024),
         userAgent: z.string().optional(),
         blockOnSecret: z.boolean().default(true),
       })
@@ -143,14 +149,38 @@ export const skillsConfigSchema = z.object({
   directory: z.string().optional(), // defaults to workspace/skills
 });
 
+export const toolPolicySchema = z
+  .object({
+    /** Only allow these tools (takes precedence over denyList) */
+    allowList: z.array(z.string()).optional(),
+    /** Deny these tools (ignored if allowList is set) */
+    denyList: z.array(z.string()).optional(),
+  })
+  .optional();
+
+export const toolsConfigSchema = z
+  .object({
+    /** Enable write tools (edit_file). Default: false */
+    allowWrite: z.boolean().default(false),
+    /** Tool policy for filtering available tools */
+    policy: toolPolicySchema,
+  })
+  .default({ allowWrite: false });
+
 const gatewayHttpSchema = z.object({
   host: z.string().default("127.0.0.1"),
   port: z.number().int().default(8787),
   token: z.string().optional(),
   allowlist: z.array(z.string()).default([]),
   sqlitePath: z.string().default("./workspace/gateway.db"),
-  idempotencyTtlMs: z.number().int().default(10 * 60 * 1000),
-  eventTtlMs: z.number().int().default(24 * 60 * 60 * 1000),
+  idempotencyTtlMs: z
+    .number()
+    .int()
+    .default(10 * 60 * 1000),
+  eventTtlMs: z
+    .number()
+    .int()
+    .default(24 * 60 * 60 * 1000),
   rateLimit: z
     .object({
       windowMs: z.number().int().default(60_000),
@@ -169,6 +199,45 @@ const sessionSchema = z
     summarizeOnReset: z.boolean().default(true),
   })
   .default({ scope: "per-agent", mainKey: "main" });
+
+// Infrastructure config for rate limiting, idempotency, event logging
+const infraSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    sqlitePath: z.string().default("~/.owliabot/infra.db"),
+    rateLimit: z
+      .object({
+        enabled: z.boolean().default(true),
+        windowMs: z.number().int().default(60_000), // 1 minute
+        maxMessages: z.number().int().default(30), // 30 messages per minute per user
+      })
+      .default({ enabled: true, windowMs: 60_000, maxMessages: 30 }),
+    idempotency: z
+      .object({
+        enabled: z.boolean().default(true),
+        ttlMs: z
+          .number()
+          .int()
+          .default(5 * 60 * 1000), // 5 minutes
+      })
+      .default({ enabled: true, ttlMs: 5 * 60 * 1000 }),
+    eventStore: z
+      .object({
+        enabled: z.boolean().default(true),
+        ttlMs: z
+          .number()
+          .int()
+          .default(24 * 60 * 60 * 1000), // 24 hours
+      })
+      .default({ enabled: true, ttlMs: 24 * 60 * 60 * 1000 }),
+  })
+  .default({
+    enabled: true,
+    sqlitePath: "~/.owliabot/infra.db",
+    rateLimit: { enabled: true, windowMs: 60_000, maxMessages: 30 },
+    idempotency: { enabled: true, ttlMs: 5 * 60 * 1000 },
+    eventStore: { enabled: true, ttlMs: 24 * 60 * 60 * 1000 },
+  });
 
 const agentsSchema = z
   .object({
@@ -192,10 +261,7 @@ const memorySearchSchema = z
 
     store: z
       .object({
-        path: z
-          .string()
-          .min(1)
-          .default("~/.owliabot/memory/{agentId}.sqlite"),
+        path: z.string().min(1).default("~/.owliabot/memory/{agentId}.sqlite"),
       })
       .default({ path: "~/.owliabot/memory/{agentId}.sqlite" }),
 
@@ -216,7 +282,11 @@ const memorySearchSchema = z
         autoIndex: z.boolean().default(false),
 
         /** Minimum time between indexing attempts for the same DB path. */
-        minIntervalMs: z.number().int().nonnegative().default(5 * 60 * 1000),
+        minIntervalMs: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(5 * 60 * 1000),
 
         /** Optional override for which sources to index (defaults to memorySearch.sources). */
         sources: z
@@ -282,6 +352,9 @@ export const configSchema = z.object({
   // Skills
   skills: skillsConfigSchema.optional(),
 
+  // Tools configuration
+  tools: toolsConfigSchema,
+
   // Memory search (OpenClaw-style; PR3-1 scaffold)
   memorySearch: memorySearchSchema,
 
@@ -291,7 +364,12 @@ export const configSchema = z.object({
       http: gatewayHttpSchema.optional(),
     })
     .optional(),
+
+  // Infrastructure (rate limiting, idempotency, event store)
+  infra: infraSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;
 export type ProviderConfig = z.infer<typeof providerSchema>;
+export type ToolPolicy = z.infer<typeof toolPolicySchema>;
+export type ToolsConfig = z.infer<typeof toolsConfigSchema>;

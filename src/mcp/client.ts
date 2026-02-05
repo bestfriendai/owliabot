@@ -52,6 +52,7 @@ export class MCPClient {
   private toolsCache: MCPToolDefinition[] | null = null;
   private connected = false;
   private serverName: string;
+  private toolsChangedCallbacks = new Set<() => void>();
   
   constructor(private options: MCPClientOptions) {
     this.serverName = options.config.name;
@@ -83,14 +84,29 @@ export class MCPClient {
     this.transport.onError((err) => this.handleError(err));
     this.transport.onClose((code) => this.handleClose(code));
 
-    // Connect transport (spawns process for stdio)
-    await this.transport.connect();
+    try {
+      // Connect transport (spawns process for stdio)
+      await this.transport.connect();
 
-    // Perform MCP handshake
-    await this.initialize();
+      // Perform MCP handshake
+      await this.initialize();
 
-    this.connected = true;
-    log.info(`Connected to MCP server: ${config.name}`);
+      this.connected = true;
+      log.info(`Connected to MCP server: ${config.name}`);
+    } catch (err) {
+      this.connected = false;
+      try {
+        await this.transport.close();
+      } catch (closeError) {
+        log.warn(
+          `Failed to close transport after connection error: ${
+            closeError instanceof Error ? closeError.message : String(closeError)
+          }`
+        );
+      }
+      this.transport = null;
+      throw err;
+    }
   }
 
   /**
@@ -186,6 +202,16 @@ export class MCPClient {
    */
   invalidateToolsCache(): void {
     this.toolsCache = null;
+  }
+
+  /**
+   * Register a callback for tools/list_changed notifications
+   */
+  onToolsChanged(callback: () => void): () => void {
+    this.toolsChangedCallbacks.add(callback);
+    return () => {
+      this.toolsChangedCallbacks.delete(callback);
+    };
   }
 
   // ==========================================================================
@@ -331,6 +357,17 @@ export class MCPClient {
       case "notifications/tools/list_changed":
         log.info("Tools list changed, invalidating cache");
         this.invalidateToolsCache();
+        for (const callback of this.toolsChangedCallbacks) {
+          try {
+            callback();
+          } catch (err) {
+            log.error(
+              `Tools changed handler error: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
         break;
 
       default:

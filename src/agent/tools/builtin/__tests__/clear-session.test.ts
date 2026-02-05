@@ -43,7 +43,8 @@ describe("clear-session tool", () => {
   it("should have correct metadata", () => {
     expect(clearSessionTool.name).toBe("clear_session");
     expect(clearSessionTool.description).toContain("Clear the current conversation");
-    expect(clearSessionTool.security.level).toBe("read");
+    // Security level is "write" because it clears/modifies session data
+    expect(clearSessionTool.security.level).toBe("write");
   });
 
   it("should work with different session keys", async () => {

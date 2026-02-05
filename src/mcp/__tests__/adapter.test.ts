@@ -104,7 +104,7 @@ describe("MCPToolAdapter", () => {
 
   describe("security level mapping", () => {
     const securityTestCases = [
-      // Read-level (default)
+      // Read-level (read keywords)
       { toolName: "get_status", expected: "read" },
       { toolName: "list_files", expected: "read" },
       { toolName: "search_items", expected: "read" },
@@ -196,8 +196,8 @@ describe("MCPToolAdapter", () => {
 
       const tools = await adapter.getTools();
 
-      // Should fall back to heuristic (read by default)
-      expect(tools[0].security.level).toBe("read");
+      // Should fall back to heuristic (write by default)
+      expect(tools[0].security.level).toBe("write");
     });
   });
 

@@ -1,16 +1,28 @@
 import { ToolRegistry } from "../agent/tools/registry.js";
 import {
-  echoTool,
+  createBuiltinTools,
   createHelpTool,
-  createClearSessionTool,
-  createMemorySearchTool,
-  createMemoryGetTool,
-  createListFilesTool,
-  createEditFileTool,
+  type BuiltinToolsOptions,
+  type ToolPolicy,
 } from "../agent/tools/builtin/index.js";
 import type { SessionStore } from "../agent/session-store.js";
 import type { SessionTranscriptStore } from "../agent/session-transcript.js";
 import { randomUUID } from "node:crypto";
+
+/**
+ * Options for creating the gateway tool registry
+ */
+export interface GatewayToolRegistryOptions {
+  /** Workspace directory path */
+  workspace: string;
+  /** Tool configuration */
+  tools?: {
+    /** Enable write tools (edit_file). Default: false */
+    allowWrite?: boolean;
+    /** Policy for filtering tools */
+    policy?: ToolPolicy;
+  };
+}
 
 function createNoopSessionStore(): SessionStore {
   const entries = new Map<string, { sessionId: string; updatedAt: number }>();
@@ -57,19 +69,41 @@ function createNoopTranscriptStore(): SessionTranscriptStore {
   };
 }
 
-export async function createGatewayToolRegistry(workspacePath: string) {
+/**
+ * Create gateway tool registry with proper config handling.
+ *
+ * @param workspacePathOrOpts - Workspace path (string) for backwards compat, or full options
+ * @returns ToolRegistry instance
+ */
+export async function createGatewayToolRegistry(
+  workspacePathOrOpts: string | GatewayToolRegistryOptions
+): Promise<ToolRegistry> {
+  const opts: GatewayToolRegistryOptions =
+    typeof workspacePathOrOpts === "string"
+      ? { workspace: workspacePathOrOpts }
+      : workspacePathOrOpts;
+
+  const { workspace: workspacePath, tools: toolsConfig } = opts;
+
   const tools = new ToolRegistry();
 
   const sessionStore = createNoopSessionStore();
   const transcripts = createNoopTranscriptStore();
 
-  tools.register(echoTool);
+  // Use createBuiltinTools which respects allowWrite and policy
+  const builtinOpts: BuiltinToolsOptions = {
+    workspace: workspacePath,
+    sessionStore,
+    transcripts,
+    tools: toolsConfig,
+  };
+
+  for (const tool of createBuiltinTools(builtinOpts)) {
+    tools.register(tool);
+  }
+
+  // Register help tool last (needs registry reference)
   tools.register(createHelpTool(tools));
-  tools.register(createClearSessionTool({ sessionStore, transcripts }));
-  tools.register(createMemorySearchTool(workspacePath));
-  tools.register(createMemoryGetTool(workspacePath));
-  tools.register(createListFilesTool(workspacePath));
-  tools.register(createEditFileTool(workspacePath));
 
   // Note: Markdown-based skills are injected into system prompts, not tool registries.
   // Skills initialization should happen at the gateway level where system prompts are built.
