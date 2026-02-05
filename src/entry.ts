@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
+import { startGatewayHttp } from "./gateway-http/server.js";
 import { logger } from "./utils/logger.js";
 import {
   startOAuthFlow,
@@ -56,17 +57,41 @@ program
       const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
       const sessionsDir = join(homeDir, ".owliabot", "sessions");
 
-      // Start gateway
-      const stop = await startGateway({
+      // Start gateway (message handler)
+      const stopGateway = await startGateway({
         config,
         workspace,
         sessionsDir,
       });
 
+      // Start HTTP gateway if configured
+      let stopHttp: (() => Promise<void>) | undefined;
+      if (config.gateway?.http) {
+        const httpGateway = await startGatewayHttp({
+          config: config.gateway.http,
+          workspacePath: config.workspace,
+          system: config.system,
+        });
+        stopHttp = httpGateway.stop;
+        log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
+      }
+
       // Handle shutdown
       const shutdown = async () => {
         log.info("Shutting down...");
-        await stop();
+        // Wrap each stop in try/catch to ensure all cleanup runs
+        if (stopHttp) {
+          try {
+            await stopHttp();
+          } catch (err) {
+            log.error("Error stopping HTTP gateway", err);
+          }
+        }
+        try {
+          await stopGateway();
+        } catch (err) {
+          log.error("Error stopping message gateway", err);
+        }
         process.exit(0);
       };
 
@@ -225,6 +250,143 @@ auth
           : "anthropic";
       await clearOAuthCredentials(selectedProvider);
       log.info(`Logged out from ${selectedProvider}`);
+    }
+  });
+
+// Pair command - pair a device with the gateway
+program
+  .command("pair")
+  .description("Pair a device with the gateway HTTP server")
+  .option("--gateway-url <url>", "Gateway HTTP URL (default: http://127.0.0.1:8787)", "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token for auto-approve (or set OWLIABOT_GATEWAY_TOKEN)")
+  .option("--device-id <id>", "Device ID (auto-generated UUID if not provided)")
+  .option("--timeout <ms>", "Request timeout in milliseconds", "30000")
+  .action(async (options) => {
+    try {
+      const { randomUUID } = await import("node:crypto");
+      
+      // Get gateway token from option or env var (env var preferred for security)
+      const gatewayToken = options.gatewayToken ?? process.env.OWLIABOT_GATEWAY_TOKEN;
+      
+      // Validate device ID if provided
+      const deviceId = options.deviceId ?? randomUUID();
+      if (options.deviceId && !/^[a-zA-Z0-9_-]+$/.test(options.deviceId)) {
+        throw new Error("Invalid device ID: must contain only alphanumeric characters, dashes, and underscores");
+      }
+      
+      const gatewayUrl = options.gatewayUrl.replace(/\/$/, "");
+      const timeoutMs = parseInt(options.timeout, 10);
+      
+      if (isNaN(timeoutMs) || timeoutMs < 1000) {
+        throw new Error("Invalid timeout: must be at least 1000ms");
+      }
+
+      log.info(`Pairing device: ${deviceId}`);
+      log.info(`Gateway URL: ${gatewayUrl}`);
+
+      // Helper for fetch with timeout
+      const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(url, { ...init, signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+
+      // Step 1: Request pairing
+      let requestRes: Response;
+      try {
+        requestRes = await fetchWithTimeout(`${gatewayUrl}/pairing/request`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Device-Id": deviceId,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error(`Pairing request timed out after ${timeoutMs}ms`);
+        }
+        throw new Error(`Pairing request failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      if (!requestRes.ok) {
+        let errDetails = `HTTP ${requestRes.status}`;
+        try {
+          const errBody = await requestRes.json();
+          errDetails = JSON.stringify(errBody);
+        } catch {
+          // Keep HTTP status as error detail
+        }
+        throw new Error(`Pairing request failed: ${errDetails}`);
+      }
+
+      log.info("Pairing request submitted, status: pending");
+
+      // Step 2: Auto-approve if gateway token provided
+      if (gatewayToken) {
+        log.info("Auto-approving with gateway token...");
+
+        let approveRes: Response;
+        try {
+          approveRes = await fetchWithTimeout(`${gatewayUrl}/pairing/approve`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Gateway-Token": gatewayToken,
+            },
+            body: JSON.stringify({ deviceId }),
+          });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") {
+            throw new Error(`Pairing approval timed out after ${timeoutMs}ms`);
+          }
+          throw new Error(`Pairing approval failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        if (!approveRes.ok) {
+          let errDetails = `HTTP ${approveRes.status}`;
+          try {
+            const errBody = await approveRes.json();
+            errDetails = JSON.stringify(errBody);
+          } catch {
+            // Keep HTTP status as error detail
+          }
+          throw new Error(`Pairing approval failed: ${errDetails}`);
+        }
+
+        const result = (await approveRes.json()) as {
+          ok: boolean;
+          data?: { deviceId: string; deviceToken: string };
+        };
+
+        if (result.ok && result.data?.deviceToken) {
+          log.info("Device paired successfully!");
+          log.info(`Device ID: ${result.data.deviceId}`);
+          log.info(`Device Token: ${result.data.deviceToken}`);
+          log.info("");
+          log.warn("⚠️  Store the device token securely! It will not be shown again.");
+          log.info("");
+          log.info("Use these headers in requests:");
+          log.info(`  X-Device-Id: ${result.data.deviceId}`);
+          log.info(`  X-Device-Token: ${result.data.deviceToken}`);
+        } else {
+          throw new Error("Unexpected response format");
+        }
+      } else {
+        log.info("");
+        log.info("Device is pending approval.");
+        log.info("To approve, set OWLIABOT_GATEWAY_TOKEN env var and re-run, or use the API:");
+        log.info(`  curl -X POST ${gatewayUrl}/pairing/approve \\`);
+        log.info(`    -H "X-Gateway-Token: <token>" \\`);
+        log.info(`    -H "Content-Type: application/json" \\`);
+        log.info(`    -d '{"deviceId": "${deviceId}"}'`);
+      }
+    } catch (err) {
+      log.error("Pairing failed", err);
+      process.exit(1);
     }
   });
 
