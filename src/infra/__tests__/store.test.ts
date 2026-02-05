@@ -164,6 +164,60 @@ describe("InfraStore", () => {
       const { events: allEvents } = store.pollEvents(null, 10, now);
       expect(allEvents).toHaveLength(5);
     });
+
+    it("polls events correctly when since=0", () => {
+      const now = Date.now();
+
+      // Insert some events
+      for (let i = 0; i < 3; i++) {
+        store.insertEvent({
+          type: "test.event",
+          time: now + i,
+          status: "success",
+          source: `source${i}`,
+          message: `Event ${i}`,
+          metadataJson: null,
+          expiresAt: now + 86400_000,
+        });
+      }
+
+      // Poll with since=0 should return events with id > 0 (all events)
+      // This tests that since=0 is not treated as falsy
+      const { cursor, events } = store.pollEvents(0, 10, now);
+
+      // Should get all events in ascending order
+      expect(events).toHaveLength(3);
+      expect(events[0].source).toBe("source0");
+      expect(events[1].source).toBe("source1");
+      expect(events[2].source).toBe("source2");
+      expect(cursor).toBe(events[2].id);
+    });
+
+    it("treats since=null differently from since=0", () => {
+      const now = Date.now();
+
+      // Insert events
+      store.insertEvent({
+        type: "test.event",
+        time: now,
+        status: "success",
+        source: "first",
+        message: "First event",
+        metadataJson: null,
+        expiresAt: now + 86400_000,
+      });
+
+      // Poll with null - gets recent events in DESC then reversed
+      const { events: nullEvents } = store.pollEvents(null, 10, now);
+
+      // Poll with 0 - gets events with id > 0 in ASC order
+      const { events: zeroEvents } = store.pollEvents(0, 10, now);
+
+      // Both should return the same events, but null uses DESC+reverse, 0 uses ASC
+      expect(nullEvents).toHaveLength(1);
+      expect(zeroEvents).toHaveLength(1);
+      expect(nullEvents[0].id).toBe(zeroEvents[0].id);
+    });
   });
 
   describe("Stats", () => {

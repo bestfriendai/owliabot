@@ -3,8 +3,9 @@
  * Inspired by pi-coding-agent's edit tool
  */
 
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open, readFile, realpath, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
 /**
@@ -51,15 +52,79 @@ function normalizeForFuzzyMatch(text: string): string {
     .replace(/^\s+/gm, (match) => match.replace(/\t/g, "  ")); // normalize leading tabs
 }
 
+// Build a mapping from normalized positions to original positions
+function buildPositionMap(original: string, normalized: string): number[] {
+  // Returns an array where map[normalizedIdx] = originalIdx
+  // This handles cases where normalization changes string length
+  const map: number[] = [];
+  let origIdx = 0;
+  let normIdx = 0;
+  const origLen = original.length;
+  const normLen = normalized.length;
+
+  while (normIdx < normLen && origIdx < origLen) {
+    map[normIdx] = origIdx;
+
+    const origChar = original[origIdx];
+    const normChar = normalized[normIdx];
+
+    if (origChar === normChar) {
+      origIdx++;
+      normIdx++;
+    } else if (origChar === "\r" && original[origIdx + 1] === "\n" && normChar === "\n") {
+      // CRLF -> LF normalization
+      origIdx += 2;
+      normIdx++;
+    } else if (origChar === "\t" && normChar === " ") {
+      // Tab -> spaces normalization (tabs become 2 spaces in normalizeForFuzzyMatch)
+      origIdx++;
+      normIdx++;
+      // Skip the second space from tab expansion
+      if (normIdx < normLen && normalized[normIdx] === " ") {
+        map[normIdx] = origIdx;
+        normIdx++;
+      }
+    } else if ((origChar === " " || origChar === "\t") && normChar !== " " && normChar !== "\t") {
+      // Trailing whitespace stripped in normalized
+      origIdx++;
+    } else {
+      // Default: advance both
+      origIdx++;
+      normIdx++;
+    }
+  }
+
+  // Fill remaining positions
+  while (normIdx < normLen) {
+    map[normIdx] = origIdx;
+    normIdx++;
+  }
+
+  return map;
+}
+
+// Find the end position in original content given a normalized match
+function findOriginalMatchEnd(
+  original: string,
+  normalizedMatchEnd: number,
+  positionMap: number[]
+): number {
+  // Map the end position back to original
+  if (normalizedMatchEnd >= positionMap.length) {
+    return original.length;
+  }
+  return positionMap[normalizedMatchEnd] ?? original.length;
+}
+
 // Find text with fuzzy matching fallback
+// Returns positions in the ORIGINAL content for replacement
 function fuzzyFindText(
   content: string,
   searchText: string
 ): {
   found: boolean;
-  index: number;
-  matchLength: number;
-  contentForReplacement: string;
+  startIndex: number;
+  endIndex: number;
   usedFuzzy: boolean;
 } {
   // Try exact match first
@@ -67,9 +132,8 @@ function fuzzyFindText(
   if (exactIndex !== -1) {
     return {
       found: true,
-      index: exactIndex,
-      matchLength: searchText.length,
-      contentForReplacement: content,
+      startIndex: exactIndex,
+      endIndex: exactIndex + searchText.length,
       usedFuzzy: false,
     };
   }
@@ -80,20 +144,27 @@ function fuzzyFindText(
   const fuzzyIndex = fuzzyContent.indexOf(fuzzySearchText);
 
   if (fuzzyIndex !== -1) {
+    // Build position map to translate back to original content
+    const positionMap = buildPositionMap(content, fuzzyContent);
+    const startIndex = positionMap[fuzzyIndex] ?? 0;
+    const endIndex = findOriginalMatchEnd(
+      content,
+      fuzzyIndex + fuzzySearchText.length,
+      positionMap
+    );
+
     return {
       found: true,
-      index: fuzzyIndex,
-      matchLength: fuzzySearchText.length,
-      contentForReplacement: fuzzyContent,
+      startIndex,
+      endIndex,
       usedFuzzy: true,
     };
   }
 
   return {
     found: false,
-    index: -1,
-    matchLength: 0,
-    contentForReplacement: content,
+    startIndex: -1,
+    endIndex: -1,
     usedFuzzy: false,
   };
 }
@@ -160,18 +231,101 @@ export function createEditFileTool(opts: EditFileToolOptions): ToolDefinition {
       };
 
       // Security: ensure path is within workspace
-      if (relativePath.includes("..") || relativePath.startsWith("/")) {
+      if (!relativePath || relativePath.startsWith("/") || relativePath.includes("\0")) {
         return {
           success: false,
           error: "Invalid path: must be relative to workspace",
         };
       }
 
-      const fullPath = join(workspacePath, relativePath);
+      // Resolve and verify the path is within workspace
+      const absWorkspace = resolve(workspacePath);
+      const absPath = resolve(workspacePath, relativePath);
+      const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
+      const inWorkspace = rel.length > 0 && !rel.startsWith("..");
+      if (!inWorkspace) {
+        return {
+          success: false,
+          error: "Invalid path: must be relative to workspace",
+        };
+      }
+
+      // Verify realpath of parent directory is within workspace (handles symlink escapes)
+      try {
+        const realWorkspace = await realpath(absWorkspace);
+        const realParent = await realpath(resolve(absPath, ".."));
+        const parentRel = relative(realWorkspace, realParent).replace(/\\/g, "/");
+        const parentInWorkspace = parentRel.length >= 0 && !parentRel.startsWith("..");
+        if (!parentInWorkspace) {
+          return {
+            success: false,
+            error: "Invalid path: symlink escape detected",
+          };
+        }
+      } catch {
+        return {
+          success: false,
+          error: "Invalid path: cannot resolve parent directory",
+        };
+      }
 
       try {
-        // Read file
-        const rawContent = await readFile(fullPath, "utf-8");
+        // Check if file exists and is not a symlink
+        const fileStat = await lstat(absPath);
+        if (fileStat.isSymbolicLink()) {
+          return {
+            success: false,
+            error: "Invalid path: cannot edit symlinks",
+          };
+        }
+        if (!fileStat.isFile()) {
+          return {
+            success: false,
+            error: "Invalid path: not a regular file",
+          };
+        }
+
+        // Verify realpath of file is within workspace
+        const realWorkspace = await realpath(absWorkspace);
+        const realFile = await realpath(absPath);
+        const fileRel = relative(realWorkspace, realFile).replace(/\\/g, "/");
+        const fileInWorkspace = fileRel.length > 0 && !fileRel.startsWith("..");
+        if (!fileInWorkspace) {
+          return {
+            success: false,
+            error: "Invalid path: file resolves outside workspace",
+          };
+        }
+
+        // Read file with O_NOFOLLOW to prevent TOCTOU
+        let rawContent: string;
+        try {
+          const fh = await open(absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+          try {
+            const fdStat = await fh.stat();
+            if (!fdStat.isFile()) {
+              return {
+                success: false,
+                error: "Invalid path: not a regular file",
+              };
+            }
+            rawContent = await fh.readFile({ encoding: "utf-8" });
+          } finally {
+            await fh.close();
+          }
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "ELOOP") {
+            return {
+              success: false,
+              error: "Invalid path: cannot edit symlinks",
+            };
+          }
+          // Fallback for platforms without O_NOFOLLOW support
+          const okToFallback = code === "EINVAL" || code === "ENOSYS" || code === "EOPNOTSUPP";
+          if (!okToFallback) throw err;
+          rawContent = await readFile(absPath, "utf-8");
+        }
 
         // Strip BOM
         const { bom, text: content } = stripBom(rawContent);
@@ -182,7 +336,7 @@ export function createEditFileTool(opts: EditFileToolOptions): ToolDefinition {
         const normalizedOldText = normalizeToLF(old_text);
         const normalizedNewText = normalizeToLF(new_text);
 
-        // Find the text
+        // Find the text in the normalized content, but get positions for original content
         const matchResult = fuzzyFindText(normalizedContent, normalizedOldText);
 
         if (!matchResult.found) {
@@ -201,15 +355,15 @@ export function createEditFileTool(opts: EditFileToolOptions): ToolDefinition {
           };
         }
 
-        // Perform replacement
-        const baseContent = matchResult.contentForReplacement;
+        // Perform replacement on the ORIGINAL normalized content (preserving unrelated whitespace)
+        // The fuzzy match positions are already mapped back to original content positions
         const newContent =
-          baseContent.substring(0, matchResult.index) +
+          normalizedContent.substring(0, matchResult.startIndex) +
           normalizedNewText +
-          baseContent.substring(matchResult.index + matchResult.matchLength);
+          normalizedContent.substring(matchResult.endIndex);
 
         // Check if actually changed
-        if (baseContent === newContent) {
+        if (normalizedContent === newContent) {
           return {
             success: false,
             error: `No changes made. The replacement produced identical content.`,
@@ -218,9 +372,9 @@ export function createEditFileTool(opts: EditFileToolOptions): ToolDefinition {
 
         // Restore line endings and BOM, then write
         const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-        await writeFile(fullPath, finalContent, "utf-8");
+        await writeFile(absPath, finalContent, "utf-8");
 
-        const diffInfo = generateDiffInfo(baseContent, newContent);
+        const diffInfo = generateDiffInfo(normalizedContent, newContent);
 
         return {
           success: true,

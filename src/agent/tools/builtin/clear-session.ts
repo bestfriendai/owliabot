@@ -23,7 +23,7 @@ export function createClearSessionTool(options: ClearSessionToolOptions): ToolDe
       properties: {},
     },
     security: {
-      level: "read", // Read because it only affects current session
+      level: "write", // Write because it clears/modifies session data
     },
     async execute(_params, ctx) {
       const { sessionStore, transcripts } = options;

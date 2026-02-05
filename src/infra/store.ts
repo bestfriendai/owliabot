@@ -224,7 +224,8 @@ export function createInfraStore(config: InfraStoreConfig): InfraStore {
     },
 
     pollEvents(since, limit, now) {
-      const rows: EventRow[] = since
+      // Use explicit null check instead of falsy check to handle since=0 correctly
+      const rows: EventRow[] = since !== null
         ? db
             .prepare<[number, number, number], EventRow>(
               "SELECT id, type, time, status, source, message, metadata_json FROM infra_events WHERE id>? AND expires_at>? ORDER BY id ASC LIMIT ?",
