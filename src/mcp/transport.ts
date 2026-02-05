@@ -113,6 +113,19 @@ export class StdioTransport implements MCPTransport {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.cleanup();
+        if (this.process && !this.process.killed) {
+          this.process.stdin?.end();
+          this.process.kill("SIGTERM");
+          const hardKillTimeout = setTimeout(() => {
+            if (this.process && !this.process.killed) {
+              log.warn(
+                `Process did not exit after ${StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS}ms, sending SIGKILL`
+              );
+              this.process.kill("SIGKILL");
+            }
+          }, StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+          this.process.once("exit", () => clearTimeout(hardKillTimeout));
+        }
         reject(
           new MCPError(
             `Connection timeout after ${connectTimeout}ms`,
@@ -274,27 +287,35 @@ export class StdioTransport implements MCPTransport {
       // 3. Wait for GRACEFUL_SHUTDOWN_TIMEOUT_MS
       // 4. If still running, force kill with SIGKILL (prevents stuck processes)
       if (this.process && !this.process.killed) {
-        await new Promise<void>((resolve) => {
-          const hardKillTimeout = setTimeout(() => {
-            if (this.process && !this.process.killed) {
-              log.warn(
-                `Process did not exit after ${StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS}ms, sending SIGKILL`
-              );
-              this.process.kill("SIGKILL");
-            }
-            resolve();
-          }, StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+        const exitCode = this.process.exitCode;
+        const signalCode = this.process.signalCode;
+        const alreadyExited =
+          (exitCode !== null && exitCode !== undefined) ||
+          (signalCode !== null && signalCode !== undefined);
 
-          this.process!.once("exit", () => {
-            clearTimeout(hardKillTimeout);
-            resolve();
+        if (!alreadyExited) {
+          await new Promise<void>((resolve) => {
+            const hardKillTimeout = setTimeout(() => {
+              if (this.process && !this.process.killed) {
+                log.warn(
+                  `Process did not exit after ${StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS}ms, sending SIGKILL`
+                );
+                this.process.kill("SIGKILL");
+              }
+              resolve();
+            }, StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+
+            this.process!.once("exit", () => {
+              clearTimeout(hardKillTimeout);
+              resolve();
+            });
+
+            // Close stdin to signal shutdown
+            this.process!.stdin?.end();
+            // Send SIGTERM for graceful termination
+            this.process!.kill("SIGTERM");
           });
-
-          // Close stdin to signal shutdown
-          this.process!.stdin?.end();
-          // Send SIGTERM for graceful termination
-          this.process!.kill("SIGTERM");
-        });
+        }
       }
 
       this.process = null;

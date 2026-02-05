@@ -13,7 +13,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chmod } from "node:fs/promises";
 
 import { createMCPClient, MCPClient } from "../client.js";
 import { createMCPToolAdapter, MCPToolAdapter } from "../adapter.js";
@@ -141,9 +140,9 @@ describe.sequential("MCP E2E: Adapter", () => {
   it("applies correct security levels based on heuristics", async () => {
     const tools = await adapter.getTools();
 
-    // echo/add/fail/slow should all be "read" level (no write keywords)
+    // echo/add/fail/slow should all be "write" level (unknown tools default to write)
     for (const tool of tools) {
-      expect(tool.security.level).toBe("read");
+      expect(tool.security.level).toBe("write");
     }
   });
 
