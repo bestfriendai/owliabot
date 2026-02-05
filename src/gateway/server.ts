@@ -41,7 +41,9 @@ import { createCronIntegration } from "./cron-integration.js";
 import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const log = createLogger("gateway");
 
@@ -78,11 +80,20 @@ export async function startGateway(
   // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
+  // Multi-directory loading: builtin → user home → workspace (later overrides earlier)
   let skillsResult: SkillsInitResult | null = null;
   const skillsEnabled = config.skills?.enabled ?? true;
   if (skillsEnabled) {
-    const skillsDir = config.skills?.directory ?? join(config.workspace, "skills");
-    skillsResult = await initializeSkills([skillsDir]);
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const packageRoot = join(__dirname, "..", ".."); // src/gateway -> package root
+    
+    const builtinSkillsDir = join(packageRoot, "skills");
+    const userSkillsDir = join(homedir(), ".owliabot", "skills");
+    const workspaceSkillsDir = config.skills?.directory ?? join(config.workspace, "skills");
+    
+    // Priority: builtin (lowest) → user → workspace (highest, can override)
+    skillsResult = await initializeSkills([builtinSkillsDir, userSkillsDir, workspaceSkillsDir]);
   }
 
   // WriteGate reply router (shared across all channels)
