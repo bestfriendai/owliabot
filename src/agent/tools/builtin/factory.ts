@@ -160,7 +160,9 @@ export function createBuiltinTools(
       : null,
 
     // web_search needs the full SystemCapabilityConfig (for API keys, etc.)
-    system
+    // Gate on webSearch or web config to avoid unintentionally exposing search
+    // when only exec is configured
+    system?.webSearch || system?.web
       ? createWebSearchTool({
           config: system,
           fetchImpl,
