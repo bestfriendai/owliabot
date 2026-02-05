@@ -50,6 +50,9 @@ tools:
   "memory_search":
     tier: none
 
+  "read_file":
+    tier: none
+
   "crypto-price__get_price":
     tier: none
 
@@ -58,6 +61,14 @@ tools:
 
   # ── Tier 3: Auto-execute, log only ──
   "edit_file":
+    tier: 3
+    requireConfirmation: false
+
+  "write_file":
+    tier: 3
+    requireConfirmation: false
+
+  "apply_patch":
     tier: 3
     requireConfirmation: false
 

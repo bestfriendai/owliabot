@@ -7,3 +7,8 @@ export { createMemoryGetTool } from "./memory-get.js";
 export { createListFilesTool } from "./list-files.js";
 export { createEditFileTool } from "./edit-file.js";
 export { createCronTool, type CronToolDeps } from "./cron.js";
+
+// File system tools (group:fs)
+export { createReadFileTool } from "./read-file.js";
+export { createWriteFileTool } from "./write-file.js";
+export { createApplyPatchTool } from "./apply-patch.js";
