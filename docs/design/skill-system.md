@@ -8,6 +8,24 @@
 
 Skill 是 OwliaBot 的可扩展能力单元，允许用户通过 JavaScript/TypeScript 脚本扩展 bot 的功能。本文档定义 skill 的执行模型及其与安全层（WriteGate、TierPolicy）的集成方式。
 
+### 设计决策记录 (Brainstorming 2026-02-05)
+
+**问题：Skills 调用工具需要经过 gateway 的 WriteGate 吗？**
+
+**结论：分层处理，不是所有 skill 调用都过 WriteGate。**
+
+| 场景 | 处理方式 |
+|------|---------|
+| Skill 调用 read-only 工具（read-file, list-dir, web.fetch） | 直接执行，不过 WriteGate |
+| Skill 调用 write 工具（edit-file, write-file） | **过 WriteGate**，因为底层还是写文件 |
+| Skill 调用外部 API / 发交易 | 不归 WriteGate，归 **Tier 1/2/3 策略** |
+
+**设计理由：**
+- WriteGate 是工具级别的门，不是 skill 级别的
+- Skill 只是「调用工具的脚本」，真正的安全边界在工具层
+- 这样 skill 作者不用重新实现安全逻辑，用户对敏感操作有一致的确认体验
+- 未来加新工具，安全策略自动继承
+
 ### 设计原则
 
 1. **安全边界在工具层，不在 skill 层** — Skill 是透明的"调用者"，不绕过任何门控
