@@ -3,6 +3,9 @@
 // Factory (preferred for new code)
 export { createBuiltinTools, type BuiltinToolsOptions } from "./factory.js";
 
+// Policy filtering
+export { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
+
 // Individual tool exports (for special cases)
 export { echoTool } from "./echo.js";
 export { createHelpTool } from "./help.js";

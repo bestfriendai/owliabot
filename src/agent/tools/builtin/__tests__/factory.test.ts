@@ -85,4 +85,95 @@ describe("createBuiltinTools", () => {
       expect(typeof tool.execute).toBe("function");
     }
   });
+
+  describe("policy filtering", () => {
+    it("filters tools with allowList policy", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: {
+          allowWrite: true,
+          policy: { allowList: ["echo", "memory_search"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toEqual(["echo", "memory_search"]);
+    });
+
+    it("filters tools with denyList policy", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: {
+          allowWrite: true,
+          policy: { denyList: ["edit_file", "clear_session"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain("edit_file");
+      expect(names).not.toContain("clear_session");
+      expect(names).toContain("echo");
+      expect(names).toContain("memory_search");
+    });
+
+    it("allowList takes precedence over denyList", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: {
+          allowWrite: true,
+          policy: {
+            allowList: ["echo", "edit_file"],
+            denyList: ["edit_file"], // Should be ignored
+          },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toEqual(["echo", "edit_file"]);
+    });
+
+    it("returns all tools when policy is undefined", () => {
+      const toolsWithPolicy = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: { allowWrite: true, policy: undefined },
+      });
+
+      const toolsWithoutPolicy = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: { allowWrite: true },
+      });
+
+      expect(toolsWithPolicy.map((t) => t.name)).toEqual(
+        toolsWithoutPolicy.map((t) => t.name),
+      );
+    });
+
+    it("policy filtering applies after allowWrite filtering", () => {
+      // With allowWrite: false, edit_file is never created
+      // So even if policy allows it, it won't be in the result
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        tools: {
+          allowWrite: false, // edit_file not created
+          policy: { allowList: ["echo", "edit_file"] }, // edit_file allowed but doesn't exist
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toEqual(["echo"]);
+      expect(names).not.toContain("edit_file");
+    });
+  });
 });

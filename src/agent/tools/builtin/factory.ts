@@ -12,6 +12,7 @@
 import type { ToolDefinition } from "../interface.js";
 import type { SessionStore } from "../../session-store.js";
 import type { SessionTranscriptStore } from "../../session-transcript.js";
+import { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
 
 import { echoTool } from "./echo.js";
 import { createClearSessionTool } from "./clear-session.js";
@@ -37,6 +38,8 @@ export interface BuiltinToolsOptions {
   tools?: {
     /** Enable write tools (edit_file). Default: false */
     allowWrite?: boolean;
+    /** Policy for filtering tools */
+    policy?: ToolPolicy;
   };
 }
 
@@ -74,5 +77,9 @@ export function createBuiltinTools(
     toolsConfig?.allowWrite ? createEditFileTool({ workspace }) : null,
   ];
 
-  return builtins.filter((t): t is ToolDefinition => t !== null);
+  // Filter out null entries
+  const tools = builtins.filter((t): t is ToolDefinition => t !== null);
+
+  // Apply policy filtering
+  return filterToolsByPolicy(tools, toolsConfig?.policy);
 }

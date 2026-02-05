@@ -149,10 +149,21 @@ export const skillsConfigSchema = z.object({
   directory: z.string().optional(), // defaults to workspace/skills
 });
 
+export const toolPolicySchema = z
+  .object({
+    /** Only allow these tools (takes precedence over denyList) */
+    allowList: z.array(z.string()).optional(),
+    /** Deny these tools (ignored if allowList is set) */
+    denyList: z.array(z.string()).optional(),
+  })
+  .optional();
+
 export const toolsConfigSchema = z
   .object({
     /** Enable write tools (edit_file). Default: false */
     allowWrite: z.boolean().default(false),
+    /** Tool policy for filtering available tools */
+    policy: toolPolicySchema,
   })
   .default({ allowWrite: false });
 
@@ -360,3 +371,5 @@ export const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 export type ProviderConfig = z.infer<typeof providerSchema>;
+export type ToolPolicy = z.infer<typeof toolPolicySchema>;
+export type ToolsConfig = z.infer<typeof toolsConfigSchema>;
