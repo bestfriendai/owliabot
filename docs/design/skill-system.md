@@ -87,8 +87,11 @@ Skill 是 OwliaBot 的可扩展能力单元，允许用户通过 JavaScript/Type
 |---------|------|--------|---------|
 | **Read Tools** | read-file, list-dir, read-url | 无 | 直接执行 |
 | **Write Tools** | edit-file, write-file, delete-file | WriteGate | allowlist + 可选确认 |
-| **System Capability** | web.fetch, web.search, exec | SystemCapability | 域名/命令白名单 + 私网拦截 |
+| **System Capability (网络)** | web.fetch, web.search | SystemCapability | 域名白名单 + 私网拦截 |
+| **System Capability (exec)** | exec | TierPolicy (Tier 2) | 命令白名单 + inline 确认 |
 | **Signer/链上** | transfer, approve, sign | TierPolicy | Tier 1/2/3 分级确认 |
+
+> **注意**：`exec` 因为可执行任意命令，安全级别为 `write`，需要 Tier 2 inline 确认，与 `tier-policy.md` 保持一致。
 
 ### 3.1 WriteGate 集成
 
@@ -306,21 +309,38 @@ export const transferSkill: SkillDefinition = {
 
 所有 skill 触发的工具调用都记录到 `workspace/audit.jsonl`：
 
-```json
+```jsonc
 {
-  "id": "01HQ3K...",
-  "ts": 1707091234567,
-  "skillId": "todo",
-  "skillVersion": "1.0.0",
-  "tool": "edit-file",
-  "params": { "path": "todo.md", "operation": "append" },
-  "userId": "123456",
+  // 基础字段
+  "id": "audit_01HQ3KXYZ123456",           // ULID
+  "ts": "2026-02-05T04:05:12.345Z",        // ISO 8601
+  "version": 1,                             // schema 版本
+
+  // 操作信息
+  "tool": "todo__edit-file",               // skill__tool 格式
+  "tier": "none",                           // WriteGate 管理，非 TierPolicy
+  "securityLevel": "write",                 // read|write|sign
+
+  // 身份信息
+  "user": "discord:123456789",              // 发起者
+  "channel": "discord",                     // 渠道
   "sessionId": "session-abc",
-  "gate": "WriteGate",
-  "gateResult": "approved",
-  "result": "success"
+
+  // 参数（脱敏）
+  "params": {
+    "path": "todo.md",
+    "operation": "append"
+    // content 已脱敏，不记录具体内容
+  },
+
+  // 执行结果
+  "result": "success",                      // success|denied|timeout|error
+  "gate": "WriteGate",                      // 经过的安全门
+  "gateDecision": "approved"                // approved|denied|timeout
 }
 ```
+
+> 格式与 `audit-strategy.md` 对齐，详见该文档的完整 schema 定义。
 
 ## 7. 安全考量
 
