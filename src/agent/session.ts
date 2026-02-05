@@ -85,7 +85,18 @@ export function createSessionManager(sessionsDir: string): SessionManager {
 
       // Take last N turns
       const recentTurns = turns.slice(-maxTurns);
-      return recentTurns.flat();
+      let result = recentTurns.flat();
+
+      // Fix: Drop orphaned tool_result messages at the start.
+      // If history starts with a user message containing toolResults,
+      // the corresponding assistant message with toolCalls was truncated.
+      // Anthropic API requires tool_result to follow its tool_use immediately.
+      while (result.length > 0 && result[0].toolResults && result[0].toolResults.length > 0) {
+        log.warn(`Dropping orphaned tool_result message (no matching tool_use in history)`);
+        result = result.slice(1);
+      }
+
+      return result;
     },
 
     async clear(key: SessionKey): Promise<void> {
