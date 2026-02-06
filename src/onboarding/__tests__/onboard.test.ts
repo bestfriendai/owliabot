@@ -41,7 +41,7 @@ describe("onboarding", () => {
     vi.clearAllMocks();
   });
 
-  it("writes config with claude-cli setup-token and separates secrets", async () => {
+  it("writes config with anthropic setup-token and separates secrets", async () => {
     const appConfigPath = join(dir, "app.yaml");
     const workspacePath = join(dir, "workspace");
 
@@ -51,8 +51,8 @@ describe("onboarding", () => {
     answers = [
       "discord,telegram", // channels
       workspacePath,       // workspace
-      "claude-cli",        // provider (setup-token users should use claude-cli)
-      "",                  // model (default: opus)
+      "anthropic",         // provider (default, supports setup-token)
+      "",                  // model (default: claude-sonnet-4-5)
       setupToken,          // setup-token
       "y",                 // require mention
       "111,222",           // channel allowlist
@@ -66,9 +66,9 @@ describe("onboarding", () => {
     const secrets = await loadSecrets(appConfigPath);
 
     expect(config?.workspace).toBe(workspacePath);
-    expect(config?.providers?.[0]?.id).toBe("claude-cli");
-    expect(config?.providers?.[0]?.apiKey).toBe("");  // CLI providers don't need apiKey
-    expect(config?.providers?.[0]?.model).toBe("opus");
+    expect(config?.providers?.[0]?.id).toBe("anthropic");
+    expect(config?.providers?.[0]?.apiKey).toBe("secrets");  // indicates to load from secrets
+    expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
     expect(config?.discord && "token" in config.discord).toBe(false);
