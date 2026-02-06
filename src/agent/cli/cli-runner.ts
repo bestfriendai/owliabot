@@ -383,6 +383,48 @@ function parseOutput(
 }
 
 /**
+ * Check if a value is a plain object (not array, not null).
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/**
+ * Recursively collect text from various nested structures.
+ * Handles Claude CLI's various output formats.
+ */
+function collectText(value: unknown): string {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => collectText(entry)).join("");
+  }
+  if (!isRecord(value)) {
+    return "";
+  }
+  // Direct text field
+  if (typeof value.text === "string") {
+    return value.text;
+  }
+  // Content can be string or array
+  if (typeof value.content === "string") {
+    return value.content;
+  }
+  if (Array.isArray(value.content)) {
+    return value.content.map((entry) => collectText(entry)).join("");
+  }
+  // Nested message object
+  if (isRecord(value.message)) {
+    return collectText(value.message);
+  }
+  return "";
+}
+
+/**
  * Parse JSON output format.
  * Extracts text content and session ID from the response.
  */
@@ -390,28 +432,23 @@ function parseJsonOutput(stdout: string, backend: CliBackend): CliAgentResult {
   try {
     const data = JSON.parse(stdout.trim());
 
-    // Extract text from various possible fields
-    let text = "";
-    if (typeof data.result === "string") {
-      text = data.result;
-    } else if (typeof data.result?.text === "string") {
-      text = data.result.text;
-    } else if (typeof data.text === "string") {
-      text = data.text;
-    } else if (typeof data.content === "string") {
-      text = data.content;
-    } else if (typeof data.response === "string") {
-      text = data.response;
-    } else if (typeof data === "string") {
-      text = data;
-    } else {
-      // Fallback: stringify the whole thing
-      text = JSON.stringify(data, null, 2);
+    if (!isRecord(data)) {
+      return {
+        text: stdout.trim(),
+        rawOutput: stdout,
+      };
     }
+
+    // Try multiple paths to extract text (matching OpenClaw's logic)
+    const text =
+      collectText(data.message) ||
+      collectText(data.content) ||
+      collectText(data.result) ||
+      collectText(data);
 
     // Extract session ID from configured fields
     let sessionId: string | undefined;
-    const sessionFields = backend.sessionIdFields ?? ["session_id", "sessionId"];
+    const sessionFields = backend.sessionIdFields ?? ["session_id", "sessionId", "conversation_id"];
     for (const field of sessionFields) {
       const value = getNestedValue(data, field);
       if (typeof value === "string" && value) {
@@ -421,7 +458,7 @@ function parseJsonOutput(stdout: string, backend: CliBackend): CliAgentResult {
     }
 
     return {
-      text,
+      text: text.trim(),
       sessionId,
       rawOutput: stdout,
       meta: data,
