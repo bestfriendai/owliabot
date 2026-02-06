@@ -99,13 +99,33 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         apiKeyValue = "env"; // indicates to load from env
       }
     } else if (providerId === "anthropic") {
-      // Anthropic API - only API key (setup-token users should use claude-cli)
-      const apiKeyAns = await ask(
+      // Anthropic supports both setup-token and standard API key
+      log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("  Anthropic API");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("");
+      log.info("  Option 1: Setup-token (Claude Pro/Max) - run `claude setup-token`");
+      log.info("  Option 2: Standard API key from console.anthropic.com");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+      const tokenAns = await ask(
         rl,
-        "Anthropic API key (leave empty to set via ANTHROPIC_API_KEY env): "
+        "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): "
       );
-      if (apiKeyAns) {
-        secrets.anthropic = { apiKey: apiKeyAns };
+      if (tokenAns) {
+        if (isSetupToken(tokenAns)) {
+          // Setup-token (sk-ant-oat01-...)
+          const error = validateAnthropicSetupToken(tokenAns);
+          if (error) {
+            log.warn(`Setup-token validation warning: ${error}`);
+          }
+          secrets.anthropic = { token: tokenAns };
+          log.info("✓ Setup-token saved");
+        } else {
+          // Standard API key
+          secrets.anthropic = { apiKey: tokenAns };
+          log.info("✓ API key saved");
+        }
         apiKeyValue = "secrets";
       } else {
         apiKeyValue = "env";
