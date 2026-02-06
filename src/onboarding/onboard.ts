@@ -180,8 +180,11 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     const systemConfig: SystemCapabilityConfig = {
       exec: {
         commandAllowList: [
+          // Read commands
           "ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "wc",
           "date", "env", "which", "file", "stat", "du", "df", "curl",
+          // Write commands (require confirmation when WriteGate is enabled)
+          "rm", "mkdir", "touch", "mv", "cp",
         ],
         envAllowList: ["PATH", "HOME", "USER", "LANG", "LC_ALL"],
         timeoutMs: 60_000,
