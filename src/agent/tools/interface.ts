@@ -46,6 +46,12 @@ export interface ConfirmationRequest {
   title: string;
   description: string;
   details?: Record<string, string>;
+  transaction?: {
+    to: string;
+    value: bigint;
+    data: string;
+    chainId: number;
+  };
 }
 
 export interface ToolCall {

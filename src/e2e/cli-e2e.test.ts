@@ -26,8 +26,7 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
     "Workspace path [./workspace]: ",
     "Select provider (1-3 or name) [anthropic]: ",
     "Model [claude-sonnet-4-5]: ",
-    "Auth method: (1) OAuth (Claude Pro/Max subscription), (2) API Key [1]: ",
-    "Start Anthropic OAuth now? (y/n) [n=skip for now]: ",
+    "Paste token (setup-token or API key, empty=env): ",
     "In guild, require @mention unless channel allowlisted? (y/n) [y]: ",
     "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: ",
     "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: ",
@@ -114,8 +113,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
           workspacePath, // Workspace path
           "anthropic", // Provider selection
           "", // Model (default claude-sonnet-4-5)
-          "1", // Auth method: OAuth
-          "n", // Skip OAuth for now
+          "sk-ant-api-test-e2e-fake-key", // Fake API key for testing
           "", // requireMentionInGuild (default y)
           "", // channelAllowList (default)
           "test-discord-token-e2e", // Discord token
@@ -132,7 +130,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
 
       expect(app.workspace).toBe(workspacePath);
       expect(Array.isArray(app.providers)).toBe(true);
-      expect(app.providers[0]).toMatchObject({ id: "anthropic", apiKey: "oauth" });
+      expect(app.providers[0]).toMatchObject({ id: "anthropic", apiKey: "secrets" });
 
       expect(app.discord).toBeTruthy();
       expect(app.discord.requireMentionInGuild).toBe(true);
