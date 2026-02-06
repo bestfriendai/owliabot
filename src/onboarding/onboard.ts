@@ -46,22 +46,22 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Provider selection
     log.info("\nAvailable LLM providers:");
-    log.info("  1. anthropic     - Anthropic API (API Key)");
-    log.info("  2. openai        - OpenAI (API Key)");
-    log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
-    log.info("  4. claude-cli    - Claude CLI (setup-token, Claude Pro/Max)");
+    log.info("  1. claude-cli    - Claude CLI (setup-token, Claude Pro/Max)");
+    log.info("  2. anthropic     - Anthropic API (API Key)");
+    log.info("  3. openai        - OpenAI (API Key)");
+    log.info("  4. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
 
     const providerAns = await ask(
       rl,
-      "\nSelect provider (1-4 or name) [anthropic]: "
+      "\nSelect provider (1-4 or name) [claude-cli]: "
     );
 
     // Map numeric input to provider ID
     const providerMap: Record<string, LLMProviderId> = {
-      "1": "anthropic",
-      "2": "openai",
-      "3": "openai-codex",
-      "4": "claude-cli",
+      "1": "claude-cli",
+      "2": "anthropic",
+      "3": "openai",
+      "4": "openai-codex",
       "anthropic": "anthropic",
       "openai": "openai",
       "openai-codex": "openai-codex",
@@ -69,10 +69,10 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     };
 
     let providerId: LLMProviderId =
-      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "anthropic";
+      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "claude-cli";
 
     if (!providerAns) {
-      providerId = "anthropic";
+      providerId = "claude-cli";
     } else if (!providerMap[providerAns] && !providerMap[providerAns.toLowerCase()]) {
       log.warn(`Unknown provider: ${providerAns}, defaulting to anthropic`);
       providerId = "anthropic";
