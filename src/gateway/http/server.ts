@@ -1,13 +1,14 @@
 import http from "node:http";
 import { createStore } from "./store.js";
-import { executeToolCalls } from "../agent/tools/executor.js";
-import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
+import { executeToolCalls } from "../../agent/tools/executor.js";
+import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
 import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
-import { executeSystemRequest } from "../system/executor.js";
-import type { SystemCapabilityConfig } from "../system/interface.js";
+import { executeSystemRequest } from "../../system/executor.js";
+import type { SystemCapabilityConfig } from "../../system/interface.js";
 
 export interface GatewayHttpConfig {
+  enabled?: boolean;
   host: string;
   port: number;
   token?: string;
@@ -302,7 +303,7 @@ export async function startGatewayHttp(opts: {
         registry: tools,
         context: {
           sessionKey: `gateway:${deviceId}`,
-          agentId: "gateway-http",
+          agentId: "gateway/http",
           config: {},
         },
       });
