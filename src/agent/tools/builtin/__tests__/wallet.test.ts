@@ -9,13 +9,13 @@ import {
   createWalletBalanceTool,
   createWalletTransferTool,
   createWalletTools,
-} from "./wallet.js";
+} from "../wallet.js";
 import type { ToolContext } from "../interface.js";
-import * as walletModule from "../../../wallet/index.js";
+import * as walletModule from "../../../../wallet/index.js";
 
 // Mock the wallet module
-vi.mock("../../../wallet/index.js", async () => {
-  const actual = await vi.importActual<typeof walletModule>("../../../wallet/index.js");
+vi.mock("../../../../wallet/index.js", async () => {
+  const actual = await vi.importActual<typeof walletModule>("../../../../wallet/index.js");
   return {
     ...actual,
     getClawletClient: vi.fn(),

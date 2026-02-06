@@ -40,9 +40,8 @@ import { createExecTool, type ExecToolDeps } from "./exec.js";
 import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
-// Wallet tools (require wallet config)
-import { createWalletBalanceTool } from "./wallet-balance.js";
-import { createWalletTransferTool } from "./wallet-transfer.js";
+// Wallet tools (require wallet config) - use wallet.ts which has fail-closed + defaultAddress
+import { createWalletBalanceTool, createWalletTransferTool } from "./wallet.js";
 import type { ClawletClientConfig } from "../../../wallet/index.js";
 
 const log = createLogger("builtin-tools");
