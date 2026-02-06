@@ -145,8 +145,8 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_MODELS: Record<LLMProviderId, string> = {
-  anthropic: "claude-sonnet-4-5",
-  openai: "gpt-4o",
+  anthropic: "claude-opus-4-5",
+  openai: "gpt-5.2",
   "openai-codex": "gpt-5.2",
   "openai-compatible": "llama3.2",
 };

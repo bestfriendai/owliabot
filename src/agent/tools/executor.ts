@@ -34,6 +34,7 @@ export interface ExecutorOptions {
   // WriteGate options (Phase 1.5)
   writeGateChannel?: WriteGateChannel;
   securityConfig?: {
+    writeGateEnabled?: boolean;
     writeToolAllowList?: string[];
     writeToolConfirmation?: boolean;
     writeToolConfirmationTimeoutMs?: number;
@@ -173,7 +174,8 @@ export async function executeToolCall(
   }
 
   // Write / sign tools require the WriteGate permission check (Phase 1.5)
-  if (tool.security.level !== "read") {
+  const writeGateEnabled = options.securityConfig?.writeGateEnabled ?? true;
+  if (tool.security.level !== "read" && writeGateEnabled) {
     const { writeGateChannel, securityConfig, workspacePath, userId } = options;
 
     if (!writeGateChannel || !workspacePath) {

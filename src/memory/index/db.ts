@@ -135,7 +135,11 @@ export function openMemoryIndexDb(params: {
 }): { db: Database.Database; path: string } {
   const memoryConfig = resolveMemorySearchConfig(params.config);
   const agentId = resolveAgentId({ config: params.config });
-  const dbPath = resolveMemoryStorePath({ config: memoryConfig, agentId });
+  const dbPath = resolveMemoryStorePath({
+    config: memoryConfig,
+    agentId,
+    workspacePath: params.config.workspace,
+  });
   const db = openMemoryIndexDbAtPath(dbPath);
   return { db, path: dbPath };
 }

@@ -99,8 +99,8 @@ gateway:
 
     it("should generate valid app.yaml with providers", () => {
       const providers = [
-        { id: "anthropic", model: "claude-sonnet-4-5", apiKey: "oauth", priority: 1 },
-        { id: "openai", model: "gpt-4o", apiKey: "secrets", priority: 2 },
+        { id: "anthropic", model: "claude-opus-4-5", apiKey: "oauth", priority: 1 },
+        { id: "openai", model: "gpt-5.2", apiKey: "secrets", priority: 2 },
       ];
       
       let appYaml = "providers:\n";
@@ -112,7 +112,7 @@ gateway:
       }
       
       expect(appYaml).toContain("id: anthropic");
-      expect(appYaml).toContain("model: claude-sonnet-4-5");
+      expect(appYaml).toContain("model: claude-opus-4-5");
       expect(appYaml).toContain("id: openai");
       expect(appYaml).toContain("priority: 2");
     });

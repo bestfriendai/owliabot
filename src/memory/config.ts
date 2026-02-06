@@ -28,9 +28,14 @@ function safeFileToken(input: string): string {
 export function resolveMemoryStorePath(params: {
   config: MemorySearchConfig;
   agentId: string;
+  workspacePath?: string;
 }): string {
   const raw = params.config.store.path;
   const safeAgentId = safeFileToken(params.agentId);
-  const withToken = raw.replaceAll("{agentId}", safeAgentId);
-  return path.resolve(expandTilde(withToken));
+  const workspaceRoot = params.workspacePath
+    ? path.resolve(expandTilde(params.workspacePath))
+    : path.resolve("workspace");
+  const withWorkspace = raw.replaceAll("{workspace}", workspaceRoot);
+  const withAgentId = withWorkspace.replaceAll("{agentId}", safeAgentId);
+  return path.resolve(expandTilde(withAgentId));
 }

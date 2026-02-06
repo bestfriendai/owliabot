@@ -100,7 +100,7 @@ export function createMemorySearchTool(opts: MemorySearchToolOptions): ToolDefin
       const storePath =
         typeof rawCfg?.store?.path === "string" && rawCfg.store.path.trim()
           ? rawCfg.store.path
-          : "~/.owliabot/memory/{agentId}.sqlite";
+          : "{workspace}/memory/{agentId}.sqlite";
 
       const agentId =
         typeof ctx?.agentId === "string" && ctx.agentId ? ctx.agentId : "default";
@@ -123,6 +123,7 @@ export function createMemorySearchTool(opts: MemorySearchToolOptions): ToolDefin
             extraPaths,
           } as any,
           agentId,
+          workspacePath,
         });
       } catch {
         dbPath = undefined;

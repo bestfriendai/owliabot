@@ -268,7 +268,7 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     if (useAnthropic) {
       providers.push({
         id: "anthropic",
-        model: "claude-sonnet-4-5",
+        model: "claude-opus-4-5",
         apiKey: secrets.anthropic?.apiKey ? "secrets" : "oauth",
         priority: priority++,
       } as ProviderConfig);
@@ -276,7 +276,7 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     if (useOpenai) {
       providers.push({
         id: "openai",
-        model: "gpt-4o",
+        model: "gpt-5.2",
         apiKey: secrets.openai?.apiKey ? "secrets" : "env",
         priority: priority++,
       } as ProviderConfig);
