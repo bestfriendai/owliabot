@@ -116,11 +116,19 @@ export interface AppConfig {
 
   // Security configuration
   security?: {
+    /** Global write-gate switch (default: true) */
+    writeGateEnabled?: boolean;
     /** User IDs allowed to trigger write-level tools */
     writeToolAllowList?: string[];
     /** Whether to require interactive confirmation for write tools (default: true) */
     writeToolConfirmation?: boolean;
     /** Timeout in ms for write tool confirmation */
     writeToolConfirmationTimeoutMs?: number;
+  };
+
+  // Tool configuration
+  tools?: {
+    /** Enable filesystem write tools (write_file / edit_file / apply_patch) */
+    allowWrite?: boolean;
   };
 }

@@ -63,7 +63,7 @@ describe("onboarding", () => {
       workspacePath,       // Workspace path
       "1",                 // AI provider: 1 = Anthropic
       setupToken,          // Setup-token
-      "",                  // Model (default: claude-sonnet-4-5)
+      "",                  // Model (default: claude-opus-4-5)
       "n",                 // Gateway: no
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
@@ -77,16 +77,19 @@ describe("onboarding", () => {
     const secrets = await loadSecrets(appConfigPath);
 
     expect(config?.workspace).toBe(workspacePath);
+    expect(config?.memorySearch?.store?.path).toBe(join(workspacePath, "memory", "{agentId}.sqlite"));
     expect(config?.providers?.[0]?.id).toBe("anthropic");
     expect(config?.providers?.[0]?.apiKey).toBe("secrets");
-    expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
+    expect(config?.providers?.[0]?.model).toBe("claude-opus-4-5");
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
     expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
     expect(config?.discord && "token" in config.discord).toBe(false);
     expect(config?.telegram?.allowList).toEqual(["539066683"]);
     expect(config?.telegram && "token" in config.telegram).toBe(false);
+    expect(config?.tools?.allowWrite).toBe(true);
     expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
+    expect(config?.security?.writeGateEnabled).toBe(false);
     expect(config?.security?.writeToolConfirmation).toBe(false);
 
     expect(secrets?.discord?.token).toBe("discord-secret");
@@ -220,7 +223,30 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
 
     expect(config?.providers?.[0]?.id).toBe("openai");
+    expect(config?.providers?.[0]?.model).toBe("gpt-5.2");
     expect(config?.providers?.[0]?.apiKey).toBe("env");
+  });
+
+  it("uses config-directory workspace as default workspace path", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const expectedWorkspacePath = join(dir, "workspace");
+
+    answers = [
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      "",                  // Workspace path (use default)
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (env)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+    expect(config?.workspace).toBe(expectedWorkspacePath);
   });
 
   it("uses default allowlists for both platforms", async () => {

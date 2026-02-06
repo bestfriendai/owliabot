@@ -197,6 +197,34 @@ describe("executor", () => {
       expect(mockTool.execute).not.toHaveBeenCalled();
     });
 
+    it("should bypass write gate globally when disabled", async () => {
+      const mockTool: ToolDefinition = {
+        name: "edit_file",
+        description: "Edit file",
+        parameters: { type: "object", properties: {} },
+        security: { level: "write" },
+        execute: vi.fn(async () => ({ success: true })),
+      };
+
+      registry.register(mockTool);
+
+      const result = await executeToolCall(
+        { id: "call_1", name: "edit_file", arguments: { path: "test.txt" } },
+        {
+          registry,
+          context: mockContext,
+          securityConfig: {
+            writeGateEnabled: false,
+          },
+          ...mockDeps,
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockTool.execute).toHaveBeenCalled();
+      expect(writeGate.createWriteGate).not.toHaveBeenCalled();
+    });
+
     it("should handle tool execution errors", async () => {
       const mockTool: ToolDefinition = {
         name: "failing_tool",

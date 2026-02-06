@@ -117,7 +117,7 @@ gateway:
     it("should generate app.yaml with provider config", () => {
       const appYaml = `providers:
   - id: anthropic
-    model: claude-sonnet-4-5
+    model: claude-opus-4-5
     apiKey: oauth
     priority: 1
 
@@ -139,7 +139,7 @@ timezone: UTC
       
       const content = readFileSync(appPath, "utf-8");
       expect(content).toContain("id: anthropic");
-      expect(content).toContain("model: claude-sonnet-4-5");
+      expect(content).toContain("model: claude-opus-4-5");
       expect(content).toContain("discord:");
       expect(content).toContain("enabled: true");
       expect(content).toContain("port: 8787");

@@ -27,10 +27,10 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
     "Select [1-3]: ",                                    // Chat platform: 3 = Both
     "Discord bot token (leave empty to set later): ",    // Discord token
     "Telegram bot token (leave empty to set later): ",   // Telegram token
-    "Workspace path [./workspace]: ",                    // Workspace
+    "Workspace path [",                                  // Workspace (default path is dynamic)
     "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
     "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
-    "Model [claude-sonnet-4-5]: ",                       // Model
+    "Model [claude-opus-4-5]: ",                         // Model
     "Enable Gateway HTTP? [y/N]: ",                      // Gateway
     "Channel allowlist (comma-separated channel IDs, leave empty for all): ", // Discord channelAllowList
     "Member allowlist - user IDs allowed to interact (comma-separated): ",    // Discord memberAllowList
@@ -121,7 +121,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
           workspacePath,                   // Workspace path
           "1",                             // AI provider: 1 = Anthropic
           "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
-          "",                              // Model (default claude-sonnet-4-5)
+          "",                              // Model (default claude-opus-4-5)
           "n",                             // Gateway HTTP: no
           "",                              // Discord channelAllowList (empty)
           "123456789",                     // Discord memberAllowList
@@ -150,8 +150,11 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       expect(app.telegram.allowList).toEqual(["987654321"]);
 
       // Security section with writeGate
+      expect(app.tools).toBeTruthy();
+      expect(app.tools.allowWrite).toBe(true);
       expect(app.security).toBeTruthy();
       expect(app.security.writeToolAllowList).toEqual(["123456789", "987654321"]);
+      expect(app.security.writeGateEnabled).toBe(false);
       expect(app.security.writeToolConfirmation).toBe(false);
 
       expect(secrets.discord.token).toBe("test-discord-token-e2e");

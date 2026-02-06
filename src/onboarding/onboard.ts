@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createLogger } from "../utils/logger.js";
 import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
@@ -147,7 +147,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Workspace
     header("Workspace");
-    const workspace = (await ask(rl, "Workspace path [./workspace]: ")) || "./workspace";
+    const defaultWorkspace = join(dirname(appConfigPath), "workspace");
+    const workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
     success(`Workspace: ${workspace}`);
 
     // Provider selection
@@ -333,7 +334,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       provider: "sqlite",
       fallback: "naive",
       store: {
-        path: "~/.owliabot/memory/{agentId}.sqlite",
+        path: join(workspace, "memory", "{agentId}.sqlite"),
       },
       extraPaths: [],
       sources: ["files"],
@@ -451,11 +452,18 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
 
       if (writeToolAllowList.length > 0) {
+        config.tools = {
+          ...(config.tools ?? {}),
+          allowWrite: true,
+        };
         config.security = {
+          writeGateEnabled: false, // Disable write-gate globally for smoother UX
           writeToolAllowList,
           writeToolConfirmation: false, // Disable confirmation for smoother UX
         };
+        success("Filesystem write tools enabled (write_file/edit_file/apply_patch)");
         success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
+        success("Write-gate globally disabled");
         success("Write-tool confirmation disabled (allowlisted users can write directly)");
       }
     }
