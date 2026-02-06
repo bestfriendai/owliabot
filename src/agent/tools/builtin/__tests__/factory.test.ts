@@ -247,7 +247,7 @@ describe("createBuiltinTools", () => {
         wallet: {
           clawlet: {
             enabled: true,
-            socketPath: "/custom/socket.sock",
+            baseUrl: "http://192.168.1.100:9100",
             token: "test-token",
             connectTimeout: 10000,
             requestTimeout: 60000,

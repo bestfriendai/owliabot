@@ -53,9 +53,8 @@ const log = createLogger("builtin-tools");
 export interface WalletFactoryConfig {
   clawlet?: {
     enabled?: boolean;
-    socketPath?: string;
+    baseUrl?: string;
     token?: string;
-    connectTimeout?: number;
     requestTimeout?: number;
     defaultChainId?: number;
     defaultAddress?: string;
@@ -212,15 +211,14 @@ export function createBuiltinTools(
   if (walletConfig?.clawlet?.enabled) {
     const authToken = getClawletToken(walletConfig.clawlet);
     const clawletClientConfig: ClawletClientConfig = {
-      socketPath: walletConfig.clawlet.socketPath,
+      baseUrl: walletConfig.clawlet.baseUrl,
       authToken,
-      connectTimeout: walletConfig.clawlet.connectTimeout,
       requestTimeout: walletConfig.clawlet.requestTimeout,
     };
     const defaultChainId = walletConfig.clawlet.defaultChainId ?? 8453;
     const defaultAddress = walletConfig.clawlet.defaultAddress;
 
-    log.info(`Wallet tools enabled (chain: ${defaultChainId}, socket: ${clawletClientConfig.socketPath ?? "default"})`);
+    log.info(`Wallet tools enabled (chain: ${defaultChainId}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
 
     builtins.push(
       createWalletBalanceTool({

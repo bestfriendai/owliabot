@@ -265,12 +265,10 @@ const clawletConfigSchema = z
   .object({
     /** Enable Clawlet wallet integration */
     enabled: z.boolean().default(false),
-    /** Unix socket path for Clawlet daemon */
-    socketPath: z.string().default("/run/clawlet/clawlet.sock"),
+    /** HTTP base URL for Clawlet daemon */
+    baseUrl: z.string().url().default("http://127.0.0.1:9100"),
     /** Auth token - supports env var expansion like ${CLAWLET_TOKEN} */
     token: z.string().optional(),
-    /** Connection timeout in ms */
-    connectTimeout: z.number().int().default(5_000),
     /** Request timeout in ms */
     requestTimeout: z.number().int().default(30_000),
     /** Default chain ID for wallet operations (8453 = Base) */
@@ -283,8 +281,7 @@ const clawletConfigSchema = z
   })
   .default({
     enabled: false,
-    socketPath: "/run/clawlet/clawlet.sock",
-    connectTimeout: 5_000,
+    baseUrl: "http://127.0.0.1:9100",
     requestTimeout: 30_000,
     defaultChainId: 8453,
   });
@@ -297,8 +294,7 @@ const walletSchema = z
   .default({
     clawlet: {
       enabled: false,
-      socketPath: "/run/clawlet/clawlet.sock",
-      connectTimeout: 5_000,
+      baseUrl: "http://127.0.0.1:9100",
       requestTimeout: 30_000,
       defaultChainId: 8453,
     },

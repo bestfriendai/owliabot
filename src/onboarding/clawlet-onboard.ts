@@ -34,17 +34,9 @@ export async function detectClawlet(): Promise<ClawletDetectionResult> {
       version: health.version,
     };
   } catch (err) {
-    if (err instanceof ClawletError && err.code === "CONNECTION_FAILED") {
-      // Check the underlying error message to distinguish ENOENT vs ECONNREFUSED
-      if (err.message.includes("Socket not found")) {
-        return {
-          detected: false,
-          error: {
-            code: "NOT_INSTALLED",
-            message: "Clawlet not installed (run: cargo install clawlet-cli)",
-          },
-        };
-      } else if (err.message.includes("Connection refused")) {
+    if (err instanceof ClawletError) {
+      if (err.code === "CONNECTION_FAILED") {
+        // Connection refused means daemon not running
         return {
           detected: false,
           error: {
@@ -55,7 +47,7 @@ export async function detectClawlet(): Promise<ClawletDetectionResult> {
       }
     }
     
-    // Unknown error
+    // Unknown error (includes fetch failures when not installed)
     return {
       detected: false,
       error: {
