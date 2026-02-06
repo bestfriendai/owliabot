@@ -549,7 +549,6 @@ async function handleMessage(
         context: {
           sessionKey,
           agentId,
-          signer: null,
           config: {
             memorySearch: config.memorySearch,
           },
