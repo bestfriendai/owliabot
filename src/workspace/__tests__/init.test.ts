@@ -12,6 +12,7 @@ const BASE_FILES = [
   "TOOLS.md",
   "HEARTBEAT.md",
   "MEMORY.md",
+  "policy.yml",
 ];
 
 describe("workspace init", () => {
