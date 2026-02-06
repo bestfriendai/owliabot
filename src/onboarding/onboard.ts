@@ -220,7 +220,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       exec: {
         commandAllowList: [
           "ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "wc",
-          "date", "env", "which", "file", "stat", "du", "df",
+          "date", "env", "which", "file", "stat", "du", "df", "curl",
         ],
         envAllowList: ["PATH", "HOME", "USER", "LANG", "LC_ALL"],
         timeoutMs: 60_000,
