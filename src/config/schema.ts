@@ -51,6 +51,7 @@ export const discordConfigSchema = z.object({
 });
 
 export const securitySchema = z.object({
+  writeGateEnabled: z.boolean().default(true),
   writeToolAllowList: z.array(z.string()).default([]),
   writeToolConfirmation: z.boolean().default(true),
   writeToolConfirmationTimeoutMs: z.number().int().default(60_000),
@@ -169,6 +170,7 @@ export const toolsConfigSchema = z
   .default({ allowWrite: false });
 
 const gatewayHttpSchema = z.object({
+  enabled: z.boolean().default(true),
   host: z.string().default("127.0.0.1"),
   port: z.number().int().default(8787),
   token: z.string().optional(),
@@ -329,9 +331,9 @@ const memorySearchSchema = z
 
     store: z
       .object({
-        path: z.string().min(1).default("~/.owliabot/memory/{agentId}.sqlite"),
+        path: z.string().min(1).default("{workspace}/memory/{agentId}.sqlite"),
       })
-      .default({ path: "~/.owliabot/memory/{agentId}.sqlite" }),
+      .default({ path: "{workspace}/memory/{agentId}.sqlite" }),
 
     extraPaths: z.array(z.string()).default([]),
 
@@ -367,7 +369,7 @@ const memorySearchSchema = z
     enabled: false,
     provider: "sqlite",
     fallback: "none",
-    store: { path: "~/.owliabot/memory/{agentId}.sqlite" },
+    store: { path: "{workspace}/memory/{agentId}.sqlite" },
     extraPaths: [],
     sources: ["files"],
     indexing: { autoIndex: false, minIntervalMs: 5 * 60 * 1000 },

@@ -1,5 +1,5 @@
 /** Supported LLM provider identifiers */
-export type LLMProviderId = "anthropic" | "openai" | "openai-codex";
+export type LLMProviderId = "anthropic" | "openai" | "openai-codex" | "openai-compatible";
 
 /** Provider configuration with OAuth or API key auth */
 export type ProviderConfig =
@@ -104,4 +104,31 @@ export interface AppConfig {
 
   // System capabilities (exec / web.fetch / web.search)
   system?: SystemCapabilityConfig;
+
+  // Gateway HTTP configuration
+  gateway?: {
+    http?: {
+      host: string;
+      port: number;
+      token?: string;
+    };
+  };
+
+  // Security configuration
+  security?: {
+    /** Global write-gate switch (default: true) */
+    writeGateEnabled?: boolean;
+    /** User IDs allowed to trigger write-level tools */
+    writeToolAllowList?: string[];
+    /** Whether to require interactive confirmation for write tools (default: true) */
+    writeToolConfirmation?: boolean;
+    /** Timeout in ms for write tool confirmation */
+    writeToolConfirmationTimeoutMs?: number;
+  };
+
+  // Tool configuration
+  tools?: {
+    /** Enable filesystem write tools (write_file / edit_file / apply_patch) */
+    allowWrite?: boolean;
+  };
 }

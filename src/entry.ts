@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
-import { startGatewayHttp } from "./gateway-http/server.js";
 import { logger } from "./utils/logger.js";
 import {
   startOAuthFlow,
@@ -18,6 +17,7 @@ import {
   type SupportedOAuthProvider,
 } from "./auth/oauth.js";
 import { runOnboarding } from "./onboarding/onboard.js";
+import { runDockerOnboarding } from "./onboarding/onboard-docker.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 
 const log = logger;
@@ -64,29 +64,9 @@ program
         sessionsDir,
       });
 
-      // Start HTTP gateway if configured
-      let stopHttp: (() => Promise<void>) | undefined;
-      if (config.gateway?.http) {
-        const httpGateway = await startGatewayHttp({
-          config: config.gateway.http,
-          workspacePath: config.workspace,
-          system: config.system,
-        });
-        stopHttp = httpGateway.stop;
-        log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
-      }
-
       // Handle shutdown
       const shutdown = async () => {
         log.info("Shutting down...");
-        // Wrap each stop in try/catch to ensure all cleanup runs
-        if (stopHttp) {
-          try {
-            await stopHttp();
-          } catch (err) {
-            log.error("Error stopping HTTP gateway", err);
-          }
-        }
         try {
           await stopGateway();
         } catch (err) {
@@ -107,11 +87,21 @@ program
 
 program
   .command("onboard")
-  .description("Interactive onboarding (dev): writes ~/.owlia_dev/app.yaml and guides OAuth")
-  .option("--path <path>", "App config output path", DEV_APP_CONFIG_PATH)
+  .description("Interactive onboarding: configure providers, channels, and generate config files")
+  .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
+  .option("--docker", "Docker-aware mode: generates docker-compose.yml and full secrets")
+  .option("--config-dir <path>", "Config output directory (docker mode)", "./config")
+  .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
   .action(async (options) => {
     try {
-      await runOnboarding({ appConfigPath: options.path });
+      if (options.docker) {
+        await runDockerOnboarding({
+          configDir: options.configDir,
+          outputDir: options.outputDir,
+        });
+      } else {
+        await runOnboarding({ appConfigPath: options.path });
+      }
     } catch (err) {
       log.error("Onboarding failed", err);
       process.exit(1);

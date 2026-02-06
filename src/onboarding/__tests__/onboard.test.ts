@@ -15,7 +15,6 @@ vi.mock("node:readline", () => ({
       promptLog.push(q);
       const next = answers.shift();
       if (next === undefined) {
-        // Debug: show what prompts we've seen
         console.error("Ran out of answers! Prompts so far:", promptLog);
         throw new Error(`Ran out of answers at prompt: "${q}"`);
       }
@@ -56,18 +55,20 @@ describe("onboarding", () => {
     // Create a valid setup-token (sk-ant-oat01- prefix + enough chars for 80 total)
     const setupToken = "sk-ant-oat01-" + "a".repeat(68); // 12 + 68 = 80 chars
 
+    // New flow: selectOption for platforms (3=Both), then tokens, workspace, provider selection
     answers = [
-      "discord,telegram", // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider (default, supports setup-token)
-      "",                  // model (default: claude-sonnet-4-5)
-      setupToken,          // setup-token
-      "y",                 // require mention
-      "111,222",           // channel allowlist
-      "",                  // member allowlist (empty = allow all)
-      "discord-secret",    // discord token
-      "",                  // telegram allowlist (empty = allow all)
-      "telegram-secret",   // telegram token
+      "3",                 // Chat platform: 3 = Both (Discord + Telegram)
+      "discord-secret",    // Discord token
+      "telegram-secret",   // Telegram token
+      workspacePath,       // Workspace path
+      "1",                 // AI provider: 1 = Anthropic
+      setupToken,          // Setup-token
+      "",                  // Model (default: claude-opus-4-5)
+      "n",                 // Gateway: no
+      "111,222",           // Discord channelAllowList
+      "123456789",         // Discord memberAllowList
+      "539066683",         // Telegram allowList
+      "",                  // writeToolAllowList (use default from channels)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -76,13 +77,20 @@ describe("onboarding", () => {
     const secrets = await loadSecrets(appConfigPath);
 
     expect(config?.workspace).toBe(workspacePath);
+    expect(config?.memorySearch?.store?.path).toBe(join(workspacePath, "memory", "{agentId}.sqlite"));
     expect(config?.providers?.[0]?.id).toBe("anthropic");
-    expect(config?.providers?.[0]?.apiKey).toBe("secrets");  // indicates to load from secrets
-    expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
+    expect(config?.providers?.[0]?.apiKey).toBe("secrets");
+    expect(config?.providers?.[0]?.model).toBe("claude-opus-4-5");
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
+    expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
     expect(config?.discord && "token" in config.discord).toBe(false);
+    expect(config?.telegram?.allowList).toEqual(["539066683"]);
     expect(config?.telegram && "token" in config.telegram).toBe(false);
+    expect(config?.tools?.allowWrite).toBe(true);
+    expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
+    expect(config?.security?.writeGateEnabled).toBe(false);
+    expect(config?.security?.writeToolConfirmation).toBe(false);
 
     expect(secrets?.discord?.token).toBe("discord-secret");
     expect(secrets?.telegram?.token).toBe("telegram-secret");
@@ -94,15 +102,15 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "openai",            // provider
-      "gpt-4o-mini",       // model
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
+      "2",                 // AI provider: 2 = OpenAI
       "sk-test-key",       // OpenAI API key
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
+      "gpt-4o-mini",       // Model
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -122,15 +130,14 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "openai-codex",      // provider
-      "",                  // model (default)
-      "n",                 // skip OAuth for now
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
+      "3",                 // AI provider: 3 = openai-codex
+      "n",                 // Skip OAuth for now
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -147,15 +154,15 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider
-      "",                  // model (default)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
+      "1",                 // AI provider: 1 = Anthropic
       "sk-ant-api03-test-key",  // Anthropic standard API key
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -176,15 +183,15 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider
-      "",                  // model (default)
-      "",                  // empty = use env var
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (empty = use env var)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -200,15 +207,15 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "openai",            // provider
-      "",                  // model (default)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
+      "2",                 // AI provider: 2 = OpenAI
       "",                  // OpenAI API key (empty = use env)
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -216,58 +223,57 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
 
     expect(config?.providers?.[0]?.id).toBe("openai");
+    expect(config?.providers?.[0]?.model).toBe("gpt-5.2");
     expect(config?.providers?.[0]?.apiKey).toBe("env");
   });
 
-  it("writes user allowlists for discord and telegram", async () => {
+  it("uses config-directory workspace as default workspace path", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
+    const expectedWorkspacePath = join(dir, "workspace");
 
     answers = [
-      "discord,telegram", // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider
-      "",                  // model (default)
-      "",                  // api key (env)
-      "y",                 // require mention
-      "111,222",           // channel allowlist
-      "333,444",           // member allowlist
-      "",                  // discord token (skip)
-      "555,666",           // telegram allowlist
-      "",                  // telegram token (skip)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      "",                  // Workspace path (use default)
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (env)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
 
     const config = await loadAppConfig(appConfigPath);
-
-    expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
-    expect(config?.discord?.memberAllowList).toEqual(["333", "444"]);
-    expect(config?.telegram?.allowList).toEqual(["555", "666"]);
+    expect(config?.workspace).toBe(expectedWorkspacePath);
   });
 
-  it("omits allowlists from config when empty", async () => {
+  it("uses default allowlists for both platforms", async () => {
     const appConfigPath = join(dir, "app.yaml");
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "discord,telegram", // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider
-      "",                  // model (default)
-      "",                  // api key (env)
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // member allowlist (empty)
-      "",                  // discord token (skip)
-      "",                  // telegram allowlist (empty)
-      "",                  // telegram token (skip)
+      "3",                 // Chat platform: 3 = Both
+      "",                  // Discord token (skip)
+      "",                  // Telegram token (skip)
+      workspacePath,       // Workspace path
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (env)
+      "",                  // Model (default)
+      "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
+      "",                  // Telegram allowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
 
     const config = await loadAppConfig(appConfigPath);
 
+    // New simplified flow uses defaults
+    expect(config?.discord?.requireMentionInGuild).toBe(true);
+    expect(config?.discord?.channelAllowList).toEqual([]);
     expect(config?.discord?.memberAllowList).toBeUndefined();
     expect(config?.telegram?.allowList).toBeUndefined();
   });

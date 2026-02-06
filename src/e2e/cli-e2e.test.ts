@@ -7,7 +7,7 @@ import http from "node:http";
 import { parse } from "yaml";
 
 import { loadConfig } from "../config/loader.js";
-import { startGatewayHttp } from "../gateway-http/server.js";
+import { startGatewayHttp } from "../gateway/http/server.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -21,16 +21,21 @@ async function run(cmd: string, args: string[], opts?: { cwd?: string }) {
 }
 
 async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: string[] }) {
+  // Updated prompts to match refactored onboard.ts with selectOption
+  // Includes Discord/Telegram allowlists and writeGate allowlist prompts
   const prompts = [
-    "Enable channels (discord/telegram) [discord]: ",
-    "Workspace path [./workspace]: ",
-    "Select provider (1-3 or name) [anthropic]: ",
-    "Model [claude-sonnet-4-5]: ",
-    "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): ",
-    "In guild, require @mention unless channel allowlisted? (y/n) [y]: ",
-    "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: ",
-    "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: ",
-    "Telegram bot token (leave empty to set later via `owliabot token set telegram`) [skip]: ",
+    "Select [1-3]: ",                                    // Chat platform: 3 = Both
+    "Discord bot token (leave empty to set later): ",    // Discord token
+    "Telegram bot token (leave empty to set later): ",   // Telegram token
+    "Workspace path [",                                  // Workspace (default path is dynamic)
+    "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
+    "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
+    "Model [claude-opus-4-5]: ",                         // Model
+    "Enable Gateway HTTP? [y/N]: ",                      // Gateway
+    "Channel allowlist (comma-separated channel IDs, leave empty for all): ", // Discord channelAllowList
+    "Member allowlist - user IDs allowed to interact (comma-separated): ",    // Discord memberAllowList
+    "User allowlist - user IDs allowed to interact (comma-separated): ",      // Telegram allowList
+    "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ", // writeGate (only shown if channel users exist)
   ];
 
   const child = spawn("node", ["dist/entry.js", "onboard", "--path", opts.appYamlPath], {
@@ -74,7 +79,7 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
   return { stdout, stderr };
 }
 
-describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => {
+describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => {
   const repoRoot = process.cwd();
   const tmpRoot = "/tmp/e2e-test-config";
   const appYamlPath = join(tmpRoot, "app.yaml");
@@ -105,19 +110,23 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
     "runs onboarding, validates generated config, starts gateway, and exercises pairing + tool + events",
     async () => {
       // Step 2 + 3 — Execute onboard (simulate stdin, no real tokens)
+      // Answers match the new refactored prompts order including allowlists
       await runOnboardCli({
         cwd: repoRoot,
         appYamlPath,
         answers: [
-          "discord,telegram", // Enable channels
-          workspacePath, // Workspace path
-          "anthropic", // Provider selection
-          "", // Model (default claude-sonnet-4-5)
-          "sk-ant-api-test-e2e-fake-key", // Fake API key for testing
-          "", // requireMentionInGuild (default y)
-          "", // channelAllowList (default)
-          "test-discord-token-e2e", // Discord token
-          "test-telegram-token-e2e", // Telegram token
+          "3",                             // Chat platform: 3 = Both (Discord + Telegram)
+          "test-discord-token-e2e",        // Discord token
+          "test-telegram-token-e2e",       // Telegram token
+          workspacePath,                   // Workspace path
+          "1",                             // AI provider: 1 = Anthropic
+          "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
+          "",                              // Model (default claude-opus-4-5)
+          "n",                             // Gateway HTTP: no
+          "",                              // Discord channelAllowList (empty)
+          "123456789",                     // Discord memberAllowList
+          "987654321",                     // Telegram allowList
+          "",                              // writeGate additional IDs (use defaults from channel)
         ],
       });
 
@@ -134,10 +143,19 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
 
       expect(app.discord).toBeTruthy();
       expect(app.discord.requireMentionInGuild).toBe(true);
-      expect(app.discord.channelAllowList).toContain("1467915124764573736");
+      expect(app.discord.channelAllowList).toEqual([]);
+      expect(app.discord.memberAllowList).toEqual(["123456789"]);
 
-      // Onboarding only writes telegram section if token was provided
-      expect(app.telegram).toEqual({});
+      // Telegram section includes allowList
+      expect(app.telegram.allowList).toEqual(["987654321"]);
+
+      // Security section with writeGate
+      expect(app.tools).toBeTruthy();
+      expect(app.tools.allowWrite).toBe(true);
+      expect(app.security).toBeTruthy();
+      expect(app.security.writeToolAllowList).toEqual(["123456789", "987654321"]);
+      expect(app.security.writeGateEnabled).toBe(false);
+      expect(app.security.writeToolConfirmation).toBe(false);
 
       expect(secrets.discord.token).toBe("test-discord-token-e2e");
       expect(secrets.telegram.token).toBe("test-telegram-token-e2e");
