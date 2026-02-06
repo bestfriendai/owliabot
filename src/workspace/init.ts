@@ -14,6 +14,7 @@ const BASE_TEMPLATE_FILES = [
   "TOOLS.md",
   "HEARTBEAT.md",
   "MEMORY.md",
+  "policy.yml",
 ] as const;
 
 const BOOTSTRAP_FILENAME = "BOOTSTRAP.md";

@@ -9,11 +9,13 @@
  * - cronTool: Needs CronService which is created after initial setup
  */
 
+import { readFileSync, existsSync } from "node:fs";
 import type { ToolDefinition } from "../interface.js";
 import type { SessionStore } from "../../session-store.js";
 import type { SessionTranscriptStore } from "../../session-transcript.js";
 import type { SystemCapabilityConfig } from "../../../system/interface.js";
 import { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
+import { createLogger } from "../../../utils/logger.js";
 
 // Core tools
 import { echoTool } from "./echo.js";
@@ -38,6 +40,29 @@ import { createApplyPatchTool } from "./apply-patch.js";
 import { createExecTool, type ExecToolDeps } from "./exec.js";
 import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
+
+// Wallet tools (require wallet config)
+import { createWalletBalanceTool } from "./wallet-balance.js";
+import { createWalletTransferTool } from "./wallet-transfer.js";
+import type { ClawletClientConfig } from "../../../wallet/index.js";
+
+const log = createLogger("builtin-tools");
+
+/**
+ * Wallet configuration subset needed by factory
+ */
+export interface WalletFactoryConfig {
+  enabled?: boolean;
+  provider?: "clawlet";
+  clawlet?: {
+    socketPath?: string;
+    authTokenFile?: string;
+    authToken?: string;
+    connectTimeout?: number;
+    requestTimeout?: number;
+  };
+  defaultChainId?: number;
+}
 
 /**
  * Options for creating builtin tools
@@ -71,6 +96,38 @@ export interface BuiltinToolsOptions {
    * Defaults to global fetch.
    */
   fetchImpl?: typeof fetch;
+
+  /** Wallet configuration (Clawlet integration) */
+  wallet?: WalletFactoryConfig;
+}
+
+/**
+ * Resolve auth token from file or direct config
+ * Reads authTokenFile if specified, otherwise uses authToken
+ */
+function resolveAuthToken(clawletConfig?: WalletFactoryConfig["clawlet"]): string | undefined {
+  if (!clawletConfig) return undefined;
+
+  // Prefer authTokenFile over authToken for security
+  if (clawletConfig.authTokenFile) {
+    const tokenPath = clawletConfig.authTokenFile.replace(/^~/, process.env.HOME ?? ".");
+    if (existsSync(tokenPath)) {
+      try {
+        const token = readFileSync(tokenPath, "utf-8").trim();
+        if (token) {
+          log.debug(`Loaded auth token from ${tokenPath}`);
+          return token;
+        }
+      } catch (err) {
+        log.warn(`Failed to read auth token file ${tokenPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      log.warn(`Auth token file not found: ${tokenPath}`);
+    }
+  }
+
+  // Fallback to direct authToken
+  return clawletConfig.authToken;
 }
 
 /**
@@ -83,6 +140,7 @@ export interface BuiltinToolsOptions {
  * - **FS read tools**: list_files, read_file
  * - **FS write tools** (gated by allowWrite): edit_file, write_file, apply_patch
  * - **System tools** (require system config): exec, web_fetch, web_search
+ * - **Wallet tools** (require wallet config): wallet_balance, wallet_transfer
  *
  * Usage:
  * ```ts
@@ -108,6 +166,7 @@ export function createBuiltinTools(
     tools: toolsConfig,
     system,
     fetchImpl,
+    wallet: walletConfig,
   } = opts;
 
   const allowWrite = toolsConfig?.allowWrite ?? false;
@@ -169,6 +228,33 @@ export function createBuiltinTools(
         })
       : null,
   ];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Wallet tools (gated by wallet.enabled)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (walletConfig?.enabled && walletConfig.provider === "clawlet") {
+    const authToken = resolveAuthToken(walletConfig.clawlet);
+    const clawletClientConfig: ClawletClientConfig = {
+      socketPath: walletConfig.clawlet?.socketPath,
+      authToken,
+      connectTimeout: walletConfig.clawlet?.connectTimeout,
+      requestTimeout: walletConfig.clawlet?.requestTimeout,
+    };
+    const defaultChainId = walletConfig.defaultChainId ?? 8453;
+
+    log.info(`Wallet tools enabled (chain: ${defaultChainId}, socket: ${clawletClientConfig.socketPath ?? "default"})`);
+
+    builtins.push(
+      createWalletBalanceTool({
+        clawletConfig: clawletClientConfig,
+        defaultChainId,
+      }),
+      createWalletTransferTool({
+        clawletConfig: clawletClientConfig,
+        defaultChainId,
+      }),
+    );
+  }
 
   // Filter out null entries (disabled tools)
   const tools = builtins.filter((t): t is ToolDefinition => t !== null);
