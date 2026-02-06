@@ -338,16 +338,33 @@ function parseOutput(
   backend: CliBackend
 ): CliAgentResult {
   const { stdout, stderr, exitCode } = result;
+  const outputFormat = backend.output ?? "text";
 
+  // Try to parse output first - Claude CLI may return exit code 1 even on success
+  // Only treat as error if we can't extract valid content
   if (exitCode !== 0) {
-    log.error(`CLI exited with code ${exitCode}. stderr: ${stderr}`);
+    log.warn(`CLI exited with code ${exitCode}. stderr: ${stderr}`);
+    
+    // For JSON/JSONL formats, try parsing anyway - output might still be valid
+    if ((outputFormat === "json" || outputFormat === "jsonl") && stdout.trim()) {
+      const parsed = outputFormat === "json" 
+        ? parseJsonOutput(stdout, backend)
+        : parseJsonlOutput(stdout, backend);
+      
+      // If we got meaningful text, use it despite the exit code
+      if (parsed.text && !parsed.text.startsWith("Error:")) {
+        log.info("CLI exited with non-zero code but produced valid output");
+        return parsed;
+      }
+    }
+    
+    // No valid output - return error
+    log.error(`CLI failed with code ${exitCode}. stderr: ${stderr}`);
     return {
       text: `Error: CLI exited with code ${exitCode}. ${stderr || stdout}`,
       rawOutput: stdout,
     };
   }
-
-  const outputFormat = backend.output ?? "text";
 
   switch (outputFormat) {
     case "json":
