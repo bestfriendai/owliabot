@@ -380,15 +380,81 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       system: systemConfig,
     };
 
+    // Collect user allowlists for channels and writeGate
+    const userAllowLists: { discord: string[]; telegram: string[] } = {
+      discord: [],
+      telegram: [],
+    };
+
     if (discordEnabled) {
+      header("Discord configuration");
+      
+      const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
+      const channelAllowList = channelIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
+      const memberAllowList = memberIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      userAllowLists.discord = memberAllowList;
+
       config.discord = {
         requireMentionInGuild: true,
-        channelAllowList: [],
+        channelAllowList,
+        ...(memberAllowList.length > 0 && { memberAllowList }),
       };
+      
+      if (memberAllowList.length > 0) {
+        success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
+      }
     }
 
     if (telegramEnabled) {
-      config.telegram = {};
+      header("Telegram configuration");
+      
+      const telegramUserIds = await ask(rl, "User allowlist - user IDs allowed to interact (comma-separated): ");
+      const allowList = telegramUserIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      userAllowLists.telegram = allowList;
+
+      config.telegram = {
+        ...(allowList.length > 0 && { allowList }),
+      };
+      
+      if (allowList.length > 0) {
+        success(`Telegram user allowlist: ${allowList.join(", ")}`);
+      }
+    }
+
+    // Security: writeGate allowList
+    // Combine all user IDs from channels as default
+    const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
+    
+    if (allUserIds.length > 0) {
+      header("Write tools security");
+      info("Users in the write-tool allowlist can use file write/edit tools.");
+      info(`Suggested: ${allUserIds.join(", ")} (from channel allowlists)`);
+      
+      const writeAllowListAns = await ask(rl, `Write-tool allowlist (comma-separated) [${allUserIds.join(",")}]: `);
+      const writeToolAllowList = (writeAllowListAns || allUserIds.join(","))
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (writeToolAllowList.length > 0) {
+        config.security = {
+          writeToolAllowList,
+          writeToolConfirmation: false, // Disable confirmation for smoother UX
+        };
+        success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
+        success("Write-tool confirmation disabled (allowlisted users can write directly)");
+      }
     }
 
     if (gatewayConfig) {
