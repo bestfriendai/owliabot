@@ -439,13 +439,16 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     if (allUserIds.length > 0) {
       header("Write tools security");
       info("Users in the write-tool allowlist can use file write/edit tools.");
-      info(`Suggested: ${allUserIds.join(", ")} (from channel allowlists)`);
+      info(`Auto-included from channel allowlists: ${allUserIds.join(", ")}`);
       
-      const writeAllowListAns = await ask(rl, `Write-tool allowlist (comma-separated) [${allUserIds.join(",")}]: `);
-      const writeToolAllowList = (writeAllowListAns || allUserIds.join(","))
+      const writeAllowListAns = await ask(rl, "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ");
+      const additionalIds = writeAllowListAns
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+      
+      // Merge channel user IDs with any additional IDs (deduplicated)
+      const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
 
       if (writeToolAllowList.length > 0) {
         config.security = {
