@@ -56,7 +56,9 @@ describe("onboarding", () => {
       setupToken,          // setup-token
       "y",                 // require mention
       "111,222",           // channel allowlist
+      "",                  // member allowlist (empty = allow all)
       "discord-secret",    // discord token
+      "",                  // telegram allowlist (empty = allow all)
       "telegram-secret",   // telegram token
     ];
 
@@ -91,6 +93,7 @@ describe("onboarding", () => {
       "sk-test-key",       // OpenAI API key
       "y",                 // require mention
       "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
       "",                  // discord token (skip)
     ];
 
@@ -118,6 +121,7 @@ describe("onboarding", () => {
       "n",                 // skip OAuth for now
       "y",                 // require mention
       "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
       "",                  // discord token (skip)
     ];
 
@@ -142,6 +146,7 @@ describe("onboarding", () => {
       "sk-ant-api03-test-key",  // Anthropic standard API key
       "y",                 // require mention
       "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
       "",                  // discord token (skip)
     ];
 
@@ -170,6 +175,7 @@ describe("onboarding", () => {
       "",                  // empty = use env var
       "y",                 // require mention
       "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
       "",                  // discord token (skip)
     ];
 
@@ -193,6 +199,7 @@ describe("onboarding", () => {
       "",                  // OpenAI API key (empty = use env)
       "y",                 // require mention
       "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
       "",                  // discord token (skip)
     ];
 
@@ -202,5 +209,58 @@ describe("onboarding", () => {
 
     expect(config?.providers?.[0]?.id).toBe("openai");
     expect(config?.providers?.[0]?.apiKey).toBe("env");
+  });
+
+  it("writes user allowlists for discord and telegram", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
+
+    answers = [
+      "discord,telegram", // channels
+      workspacePath,       // workspace
+      "anthropic",         // provider
+      "",                  // model (default)
+      "",                  // api key (env)
+      "y",                 // require mention
+      "111,222",           // channel allowlist
+      "333,444",           // member allowlist
+      "",                  // discord token (skip)
+      "555,666",           // telegram allowlist
+      "",                  // telegram token (skip)
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+
+    expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
+    expect(config?.discord?.memberAllowList).toEqual(["333", "444"]);
+    expect(config?.telegram?.allowList).toEqual(["555", "666"]);
+  });
+
+  it("omits allowlists from config when empty", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
+
+    answers = [
+      "discord,telegram", // channels
+      workspacePath,       // workspace
+      "anthropic",         // provider
+      "",                  // model (default)
+      "",                  // api key (env)
+      "y",                 // require mention
+      "",                  // channel allowlist (default)
+      "",                  // member allowlist (empty)
+      "",                  // discord token (skip)
+      "",                  // telegram allowlist (empty)
+      "",                  // telegram token (skip)
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+
+    expect(config?.discord?.memberAllowList).toBeUndefined();
+    expect(config?.telegram?.allowList).toBeUndefined();
   });
 });

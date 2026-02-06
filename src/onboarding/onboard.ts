@@ -228,6 +228,15 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         .map((s) => s.trim())
         .filter(Boolean);
 
+      const memberIds = await ask(
+        rl,
+        "Discord memberAllowList (comma-separated user IDs, empty = allow all): "
+      );
+      const memberAllowList = memberIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const discordToken = await ask(
         rl,
         "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: "
@@ -240,10 +249,20 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       config.discord = {
         requireMentionInGuild,
         channelAllowList,
+        ...(memberAllowList.length > 0 && { memberAllowList }),
       };
     }
 
     if (channels.includes("telegram")) {
+      const telegramIds = await ask(
+        rl,
+        "Telegram allowList (comma-separated user IDs, empty = allow all): "
+      );
+      const telegramAllowList = telegramIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const telegramToken = await ask(
         rl,
         "Telegram bot token (leave empty to set later via `owliabot token set telegram`) [skip]: "
@@ -253,7 +272,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       }
 
       // Always include telegram section so token can be set later via env/secrets
-      config.telegram = {};
+      config.telegram = {
+        ...(telegramAllowList.length > 0 && { allowList: telegramAllowList }),
+      };
     }
 
     // Save app config (non-sensitive)
