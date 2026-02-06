@@ -4,7 +4,7 @@
  */
 
 import {
-  complete,
+  completeSimple,
   getEnvApiKey,
   getOAuthApiKey,
   type Model,
@@ -306,12 +306,12 @@ export async function runLLM(
 
   log.info(`Calling ${model.provider}/${model.id}`);
 
-  const response = await complete(model, context, {
+  const response = await completeSimple(model, context, {
     apiKey,
     maxTokens: options?.maxTokens ?? 4096,
     temperature: options?.temperature,
     reasoning: options?.reasoning,
-  } as Parameters<typeof complete>[2]);
+  } as Parameters<typeof completeSimple>[2]);
 
   // Handle different stop reasons
   switch (response.stopReason) {
