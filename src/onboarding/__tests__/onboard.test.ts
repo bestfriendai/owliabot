@@ -68,6 +68,7 @@ describe("onboarding", () => {
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
+      "n",                 // Clawlet: no
       "",                  // writeToolAllowList (use default from channels)
     ];
 
@@ -111,6 +112,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -138,6 +140,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -163,6 +166,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -192,6 +196,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -216,6 +221,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -241,6 +247,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
@@ -265,6 +272,7 @@ describe("onboarding", () => {
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)
+      "n",                 // Clawlet: no
     ];
 
     await runOnboarding({ appConfigPath });
