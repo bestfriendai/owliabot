@@ -1,12 +1,19 @@
 /**
  * Clawlet HTTP Client
  *
- * Communicates with clawlet daemon via HTTP JSON-RPC 2.0.
+ * Communicates with clawlet daemon via JSON-RPC 2.0.
+ *
+ * Clawlet's CLI (`clawlet serve --socket ...`) exposes a newline-delimited
+ * JSON-RPC stream over a Unix domain socket (not HTTP).
+ *
+ * We also keep a legacy HTTP transport (baseUrl + /rpc) for compatibility
+ * with older setups.
  * @see https://github.com/owliabot/clawlet
  */
 
 import { createLogger } from "../utils/logger.js";
 import { EventEmitter } from "node:events";
+import { createConnection } from "node:net";
 
 const log = createLogger("clawlet-client");
 
@@ -110,6 +117,11 @@ interface JsonRpcRequest {
   method: string;
   params?: unknown;
   id: number;
+  /**
+   * Authorization token for socket-mode JSON-RPC.
+   * Typically "Bearer clwt_..." (Clawlet treats this similarly to HTTP Authorization).
+   */
+  authorization?: string;
 }
 
 /** JSON-RPC 2.0 response */
@@ -128,6 +140,8 @@ interface JsonRpcResponse<T = unknown> {
 export interface ClawletClientConfig {
   /** HTTP base URL (default: http://127.0.0.1:9100) */
   baseUrl?: string;
+  /** Unix socket path (optional). If set, requests go over JSON-RPC via this socket. */
+  socketPath?: string;
   /** Auth token for API calls (clwt_xxx format) */
   authToken?: string;
   /** Request timeout in ms (default: 30000) */
@@ -157,6 +171,8 @@ export class ClawletError extends Error {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:9100";
 const DEFAULT_REQUEST_TIMEOUT = 30000;
+const DEFAULT_RPC_PATH = "/rpc";
+const NEWLINE = "\n";
 
 /**
  * Clawlet HTTP Client
@@ -179,8 +195,9 @@ const DEFAULT_REQUEST_TIMEOUT = 30000;
  * ```
  */
 export class ClawletClient extends EventEmitter {
-  private config: Required<Omit<ClawletClientConfig, "authToken">> & {
+  private config: Required<Omit<ClawletClientConfig, "authToken" | "socketPath">> & {
     authToken: string;
+    socketPath?: string;
   };
   private requestId = 0;
 
@@ -188,6 +205,7 @@ export class ClawletClient extends EventEmitter {
     super();
     this.config = {
       baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
+      socketPath: config.socketPath,
       authToken: config.authToken ?? "",
       requestTimeout: config.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT,
     };
@@ -198,6 +216,29 @@ export class ClawletClient extends EventEmitter {
    */
   setAuthToken(token: string): void {
     this.config.authToken = token;
+  }
+
+  /**
+   * Update the HTTP base URL.
+   * Note: ignored when socketPath is set.
+   */
+  setBaseUrl(baseUrl: string): void {
+    this.config.baseUrl = baseUrl;
+  }
+
+  /**
+   * Update the Unix socket path.
+   * When set, requests will go over this socket instead of TCP baseUrl.
+   */
+  setSocketPath(socketPath: string | undefined): void {
+    this.config.socketPath = socketPath;
+  }
+
+  /**
+   * Update request timeout in ms.
+   */
+  setRequestTimeout(requestTimeout: number): void {
+    this.config.requestTimeout = requestTimeout;
   }
 
   /**
@@ -228,7 +269,7 @@ export class ClawletClient extends EventEmitter {
   async authGrant(req: AuthGrantRequest): Promise<AuthGrantResponse> {
     const response = await this.call<AuthGrantResponse>(
       "auth.grant",
-      req,
+      [req],
       false
     );
     // Optionally auto-set the token
@@ -244,7 +285,7 @@ export class ClawletClient extends EventEmitter {
    */
   async balance(query: BalanceQuery): Promise<BalanceResponse> {
     this.validateAddress(query.address);
-    return this.call<BalanceResponse>("balance", query);
+    return this.call<BalanceResponse>("balance", [query]);
   }
 
   /**
@@ -256,7 +297,7 @@ export class ClawletClient extends EventEmitter {
     if (!req.amount || isNaN(parseFloat(req.amount))) {
       throw new ClawletError("Invalid amount", "RPC_ERROR");
     }
-    return this.call<TransferResponse>("transfer", req);
+    return this.call<TransferResponse>("transfer", [req]);
   }
 
   // ==========================================================================
@@ -307,9 +348,28 @@ export class ClawletClient extends EventEmitter {
         headers["Authorization"] = `Bearer ${this.config.authToken}`;
       }
 
-      log.debug(`Sending request to ${this.config.baseUrl}/rpc: ${request.method}`);
+      if (this.config.socketPath) {
+        const authorization = this.config.authToken.startsWith("Bearer ")
+          ? this.config.authToken
+          : `Bearer ${this.config.authToken}`;
 
-      const response = await fetch(`${this.config.baseUrl}/rpc`, {
+        const requestWithAuth: JsonRpcRequest =
+          requireAuth && this.config.authToken
+            ? { ...request, authorization }
+            : request;
+
+        log.debug(`Sending request to unix://${this.config.socketPath}: ${request.method}`);
+        return await this.sendUnixSocketRequest<T>({
+          socketPath: this.config.socketPath,
+          body: JSON.stringify(requestWithAuth),
+          timeoutMs: this.config.requestTimeout,
+          signal: controller.signal,
+        });
+      }
+
+      log.debug(`Sending request to ${this.config.baseUrl}${DEFAULT_RPC_PATH}: ${request.method}`);
+
+      const response = await fetch(`${this.config.baseUrl}${DEFAULT_RPC_PATH}`, {
         method: "POST",
         headers,
         body: JSON.stringify(request),
@@ -386,6 +446,152 @@ export class ClawletClient extends EventEmitter {
   }
 
   /**
+   * Send a JSON-RPC request over HTTP via Unix socket.
+   *
+   * This is used when Clawlet is running in socket mode (`clawlet serve --socket ...`).
+   */
+  private async sendUnixSocketRequest<T>(args: {
+    socketPath: string;
+    body: string;
+    timeoutMs: number;
+    signal: AbortSignal;
+  }): Promise<T> {
+    return await new Promise<T>((resolve, reject) => {
+      let settled = false;
+
+      const safeReject = (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      };
+
+      const safeResolve = (val: T) => {
+        if (settled) return;
+        settled = true;
+        resolve(val);
+      };
+
+      const socket = createConnection({ path: args.socketPath });
+
+      // Timeout
+      const timeoutId = setTimeout(() => {
+        socket.destroy(new Error("AbortError"));
+      }, args.timeoutMs);
+
+      // Abort support (from the fetch-style controller)
+      const onAbort = () => {
+        socket.destroy(new Error("AbortError"));
+      };
+      if (args.signal.aborted) {
+        onAbort();
+      } else {
+        args.signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        args.signal.removeEventListener("abort", onAbort);
+        socket.removeAllListeners();
+      };
+
+      let buffer = "";
+
+      socket.on("connect", () => {
+        socket.write(args.body + NEWLINE);
+      });
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString("utf-8");
+
+        const idx = buffer.indexOf(NEWLINE);
+        if (idx < 0) return;
+
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+
+        // We got one response line; close and parse.
+        socket.end();
+        cleanup();
+
+        try {
+          const jsonResponse = JSON.parse(line) as JsonRpcResponse<T>;
+
+          if (jsonResponse.error) {
+            const code =
+              jsonResponse.error.code === -32001 ? "UNAUTHORIZED" : "RPC_ERROR";
+
+            safeReject(
+              new ClawletError(
+                jsonResponse.error.message,
+                code,
+                jsonResponse.error.data
+              )
+            );
+            return;
+          }
+
+          if (jsonResponse.result === undefined) {
+            safeReject(
+              new ClawletError("No result in response", "INVALID_RESPONSE")
+            );
+            return;
+          }
+
+          safeResolve(jsonResponse.result);
+        } catch (e) {
+          safeReject(
+            new ClawletError(
+              `Invalid JSON response: ${(e as Error).message}`,
+              "INVALID_RESPONSE"
+            )
+          );
+        }
+      });
+
+      socket.on("error", (err: NodeJS.ErrnoException) => {
+        cleanup();
+
+        if (err.message === "AbortError") {
+          safeReject(
+            new ClawletError(`Request timeout after ${args.timeoutMs}ms`, "TIMEOUT")
+          );
+          return;
+        }
+
+        if (err.code === "EPERM" || err.code === "EACCES") {
+          safeReject(
+            new ClawletError(
+              `Socket permission denied: ${args.socketPath}`,
+              "CONNECTION_FAILED",
+              err
+            )
+          );
+          return;
+        }
+
+        if (err.code === "ENOENT") {
+          safeReject(
+            new ClawletError(
+              `Socket not found: ${args.socketPath}`,
+              "CONNECTION_FAILED",
+              err
+            )
+          );
+          return;
+        }
+
+        safeReject(
+          new ClawletError(
+            `Request failed: ${err.message}`,
+            "CONNECTION_FAILED",
+            err
+          )
+        );
+      });
+    });
+  }
+
+  /**
    * Validate Ethereum address format
    */
   private validateAddress(address: string): void {
@@ -412,6 +618,15 @@ export function getClawletClient(config?: ClawletClientConfig): ClawletClient {
     globalClient = new ClawletClient(config);
   } else if (config) {
     // Update config if provided
+    if (config.baseUrl) {
+      globalClient.setBaseUrl(config.baseUrl);
+    }
+    if (config.socketPath) {
+      globalClient.setSocketPath(config.socketPath);
+    }
+    if (config.requestTimeout) {
+      globalClient.setRequestTimeout(config.requestTimeout);
+    }
     if (config.authToken) {
       globalClient.setAuthToken(config.authToken);
     }

@@ -435,7 +435,18 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     }
 
     // Optional Clawlet wallet setup
-    await runClawletOnboarding(rl, secrets);
+    const walletConfig = await runClawletOnboarding(rl, secrets);
+    if (walletConfig.enabled) {
+      config.wallet = {
+        clawlet: {
+          enabled: true,
+          baseUrl: walletConfig.baseUrl,
+          requestTimeout: 30000,
+          defaultChainId: walletConfig.defaultChainId,
+          defaultAddress: walletConfig.defaultAddress,
+        },
+      };
+    }
 
     // Security: writeGate allowList
     // Combine all user IDs from channels as default
@@ -490,9 +501,14 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     }
 
     // Initialize workspace
-    const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
+    const workspaceInit = await ensureWorkspaceInitialized({
+      workspacePath: workspace,
+    });
     if (workspaceInit.wroteBootstrap) {
       success("Created BOOTSTRAP.md for first-run setup");
+    }
+    if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
+      success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
     }
 
     // Next steps
