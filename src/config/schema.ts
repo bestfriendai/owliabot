@@ -321,7 +321,7 @@ export type ClawletConfig = z.infer<typeof clawletConfigSchema>;
 
 const memorySearchSchema = z
   .object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
 
     // Memory-search backend (not embedding provider).
     provider: z.enum(["sqlite", "naive"]).default("sqlite"),
@@ -347,7 +347,7 @@ const memorySearchSchema = z
          * When true, attempt to build/refresh the sqlite index on-demand before a
          * sqlite search (fail-closed; will never read outside allowlists).
          */
-        autoIndex: z.boolean().default(false),
+        autoIndex: z.boolean().default(true),
 
         /** Minimum time between indexing attempts for the same DB path. */
         minIntervalMs: z
@@ -361,16 +361,16 @@ const memorySearchSchema = z
           .array(z.enum(["files", "transcripts"]).catch("files"))
           .optional(),
       })
-      .default({ autoIndex: false, minIntervalMs: 5 * 60 * 1000 }),
+      .default({ autoIndex: true, minIntervalMs: 5 * 60 * 1000 }),
   })
   .default({
-    enabled: false,
+    enabled: true,
     provider: "sqlite",
     fallback: "none",
     store: { path: "{workspace}/memory/{agentId}.sqlite" },
     extraPaths: [],
     sources: ["files"],
-    indexing: { autoIndex: false, minIntervalMs: 5 * 60 * 1000 },
+    indexing: { autoIndex: true, minIntervalMs: 5 * 60 * 1000 },
   });
 
 export const configSchema = z.object({
