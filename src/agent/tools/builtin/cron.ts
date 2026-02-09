@@ -22,6 +22,10 @@ export function createCronTool(deps: CronToolDeps): ToolDefinition {
     name: "cron",
     description: `Manage cron jobs and wake events.
 
+NOTE:
+- This tool is named "cron" but it is NOT the system cron daemon/binary.
+- Use this tool to schedule and manage jobs. Do not try to run "cron" via the exec tool.
+
 ACTIONS:
 - status: Check cron scheduler status
 - list: List jobs (use includeDisabled:true to include disabled)
@@ -110,7 +114,7 @@ PAYLOAD TYPES:
             if (!p.job) {
               return { success: false, error: "job object required for add action" };
             }
-            const input = normalizeJobInput(p.job);
+            const input = normalizeJobInput(p.job, _ctx);
             const job = await deps.cronService.add(input);
             return { success: true, data: job };
           }
@@ -182,10 +186,23 @@ interface CronToolParams {
   limit?: number;
 }
 
-function normalizeJobInput(raw: Record<string, unknown>): CronJobCreateInput {
+type CronToolRuntimeConfig = {
+  channel?: string;
+  target?: string;
+};
+
+function getRuntimeDeliveryDefaults(ctx: ToolContext): { channel?: string; to?: string } {
+  const cfg = (ctx.config ?? {}) as CronToolRuntimeConfig;
+  const channel = typeof cfg.channel === "string" ? cfg.channel : undefined;
+  const to = typeof cfg.target === "string" ? cfg.target : undefined;
+  return { channel, to };
+}
+
+function normalizeJobInput(raw: Record<string, unknown>, ctx: ToolContext): CronJobCreateInput {
   const schedule = normalizeSchedule(raw.schedule as Record<string, unknown>);
-  const payload = normalizePayload(raw.payload as Record<string, unknown>);
-  const sessionTarget = (raw.sessionTarget as CronSessionTarget) ?? 
+  const payload = normalizePayload(raw.payload as Record<string, unknown>, ctx);
+  const sessionTarget =
+    (raw.sessionTarget as CronSessionTarget) ??
     (payload.kind === "systemEvent" ? "main" : "isolated");
   const wakeMode = (raw.wakeMode as CronWakeMode) ?? "next-heartbeat";
 
@@ -212,6 +229,11 @@ function normalizeSchedule(raw: Record<string, unknown> | undefined): CronSchedu
 
   if (kind === "at" || raw.atMs !== undefined || raw.at !== undefined) {
     const atMs = parseAtMs(raw.atMs ?? raw.at);
+    // Guardrail: reject past schedules so they don't fire immediately on creation.
+    // Users who want "run now" should call cron.run(mode="force") or cron.wake(mode="now").
+    if (atMs < Date.now()) {
+      throw new Error("Invalid at schedule: atMs must be in the future");
+    }
     return { kind: "at", atMs };
   }
 
@@ -260,7 +282,7 @@ function parseAtMs(value: unknown): number {
   throw new Error("Invalid atMs: must be epoch ms or ISO date string");
 }
 
-function normalizePayload(raw: Record<string, unknown> | undefined): CronPayload {
+function normalizePayload(raw: Record<string, unknown> | undefined, ctx?: ToolContext): CronPayload {
   if (!raw) {
     throw new Error("payload is required");
   }
@@ -268,9 +290,16 @@ function normalizePayload(raw: Record<string, unknown> | undefined): CronPayload
   const kind = raw.kind as string;
 
   if (kind === "systemEvent") {
+    const explicitChannel = raw.channel ? String(raw.channel) : undefined;
+    const explicitTo = raw.to ? String(raw.to) : undefined;
+    const defaults = ctx ? getRuntimeDeliveryDefaults(ctx) : {};
+    const channel = explicitChannel ?? defaults.channel;
+    const to = explicitTo ?? defaults.to;
     return {
       kind: "systemEvent",
       text: String(raw.text ?? ""),
+      channel,
+      to,
     };
   }
 
@@ -312,6 +341,8 @@ function normalizePayloadPatch(
       }
       patch.text = text;
     }
+    if (raw.channel !== undefined) patch.channel = String(raw.channel);
+    if (raw.to !== undefined) patch.to = String(raw.to);
     return patch;
   }
 

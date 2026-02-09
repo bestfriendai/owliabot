@@ -165,6 +165,20 @@ describe("cron integration", () => {
       expect(updated?.state.nextRunAtMs).toBeUndefined();
     });
 
+    it("rejects one-shot at job when atMs is in the past", async () => {
+      await expect(
+        cronService.add({
+          name: "Past atMs",
+          schedule: { kind: "at", atMs: currentTime - 1 },
+          sessionTarget: "main",
+          wakeMode: "next-heartbeat",
+          payload: { kind: "systemEvent", text: "Should fail" },
+          enabled: true,
+          deleteAfterRun: true,
+        }),
+      ).rejects.toThrow(/atMs must be >= nowMs/i);
+    });
+
     it("deletes one-shot at job when deleteAfterRun is true", async () => {
       const job = await cronService.add({
         name: "Delete After Run",

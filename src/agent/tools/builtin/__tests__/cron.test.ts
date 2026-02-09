@@ -97,6 +97,33 @@ describe("cron tool", () => {
     expect(mockCronService.add).toHaveBeenCalled();
   });
 
+  it("defaults systemEvent delivery target to current chat when omitted", async () => {
+    const ctxWithTarget: ToolContext = {
+      ...mockCtx,
+      config: { channel: "telegram", target: "user-123" },
+    };
+
+    await tool.execute(
+      {
+        action: "add",
+        job: {
+          name: "Reminder",
+          schedule: { kind: "at", atMs: Date.now() + 60000 },
+          payload: { kind: "systemEvent", text: "drink water" }, // no channel/to
+        },
+      },
+      ctxWithTarget,
+    );
+
+    const inputArg = (mockCronService.add as any).mock.calls[0][0];
+    expect(inputArg.payload).toMatchObject({
+      kind: "systemEvent",
+      text: "drink water",
+      channel: "telegram",
+      to: "user-123",
+    });
+  });
+
   it("requires job for add action", async () => {
     const result = await tool.execute({ action: "add" }, mockCtx);
     expect(result.success).toBe(false);

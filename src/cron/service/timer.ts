@@ -181,7 +181,11 @@ export async function executeJob(
         return;
       }
 
-      state.deps.enqueueSystemEvent(text, { agentId: job.agentId });
+      state.deps.enqueueSystemEvent(text, {
+        agentId: job.agentId,
+        channel: job.payload.kind === "systemEvent" ? job.payload.channel : undefined,
+        to: job.payload.kind === "systemEvent" ? job.payload.to : undefined,
+      });
 
       if (job.wakeMode === "now" && state.deps.runHeartbeatOnce) {
         const reason = `cron:${job.id}`;

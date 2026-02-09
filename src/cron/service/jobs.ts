@@ -121,6 +121,15 @@ export function createJob(
 
   assertSupportedJobSpec(job);
   job.state.nextRunAtMs = computeJobNextRunAtMs(job, now);
+
+  // Prevent accidental "at" schedules in the past from firing immediately.
+  // Users who want immediate execution can use cron.run(mode="force") or cron.wake(mode="now").
+  if (job.schedule.kind === "at") {
+    const atMs = job.schedule.atMs;
+    if (!Number.isFinite(atMs) || atMs < now) {
+      throw new Error(`Invalid at schedule: atMs must be >= nowMs. atMs=${atMs} nowMs=${now}`);
+    }
+  }
   return job;
 }
 
@@ -172,7 +181,9 @@ function mergeCronPayload(existing: CronPayload, patch: any): CronPayload {
       return buildPayloadFromPatch(patch);
     }
     const text = typeof patch.text === "string" ? patch.text : existing.text;
-    return { kind: "systemEvent", text };
+    const channel = typeof patch.channel === "string" ? patch.channel : existing.channel;
+    const to = typeof patch.to === "string" ? patch.to : existing.to;
+    return { kind: "systemEvent", text, channel, to };
   }
 
   if (existing.kind !== "agentTurn") {
@@ -212,7 +223,12 @@ function buildPayloadFromPatch(patch: any): CronPayload {
     if (typeof patch.text !== "string" || patch.text.length === 0) {
       throw new Error('cron.update payload.kind="systemEvent" requires text');
     }
-    return { kind: "systemEvent", text: patch.text };
+    return {
+      kind: "systemEvent",
+      text: patch.text,
+      channel: typeof patch.channel === "string" ? patch.channel : undefined,
+      to: typeof patch.to === "string" ? patch.to : undefined,
+    };
   }
   if (typeof patch.message !== "string" || patch.message.length === 0) {
     throw new Error('cron.update payload.kind="agentTurn" requires message');
