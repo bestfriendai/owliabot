@@ -37,6 +37,22 @@ export const telegramConfigSchema = z.object({
   allowList: z.array(z.string()).optional(),
   /** Allow list of Telegram group IDs where the bot will respond even in mention-only mode */
   groupAllowList: z.array(z.string()).optional(),
+  /**
+   * Per-group overrides (by Telegram chat id), plus optional "*" default.
+   * Example:
+   * telegram.groups["-100123"].requireMention = false
+   */
+  groups: z
+    .record(
+      z.string(),
+      z.object({
+        enabled: z.boolean().optional(),
+        requireMention: z.boolean().optional(),
+        allowFrom: z.array(z.string()).optional(),
+        historyLimit: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const discordConfigSchema = z.object({
@@ -261,8 +277,12 @@ const groupSchema = z
     activation: z.enum(["mention", "always"]).default("mention"),
     /** In group chats, keep a rolling buffer of recent messages as mention-time context. */
     historyLimit: z.number().int().nonnegative().default(50),
+    /** Custom mention trigger patterns (regex strings, case-insensitive). */
+    mentionPatterns: z.array(z.string()).optional(),
+    /** Max concurrent group mention requests per session key (default 3). */
+    maxConcurrent: z.number().int().positive().default(3),
   })
-  .default({ activation: "mention", historyLimit: 50 });
+  .default({ activation: "mention", historyLimit: 50, maxConcurrent: 3 });
 
 // Clawlet-specific configuration (nested under wallet.clawlet)
 const clawletConfigSchema = z

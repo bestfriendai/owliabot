@@ -79,7 +79,7 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
   const capabilities: ChannelCapabilities = {
     reactions: true,
-    threads: false,
+    threads: true,
     buttons: true,
     markdown: true,
     maxMessageLength: 4096,
@@ -165,6 +165,9 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
           from: ctx.from?.id.toString() ?? "",
           senderName: ctx.from?.first_name ?? "Unknown",
           senderUsername: ctx.from?.username,
+          threadId: (ctx.message as any).message_thread_id
+            ? String((ctx.message as any).message_thread_id)
+            : undefined,
           replyToBody:
             (ctx.message.reply_to_message as any)?.text ??
             (ctx.message.reply_to_message as any)?.caption,
@@ -224,6 +227,30 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
             ? parseInt(message.replyToId, 10)
             : undefined,
         });
+      }
+    },
+
+    async addReaction(chatId: string, messageId: string, emoji: string) {
+      try {
+        await bot.api.setMessageReaction(
+          parseInt(chatId, 10),
+          parseInt(messageId, 10),
+          [{ type: "emoji", emoji }] as any,
+        );
+      } catch (err) {
+        log.warn("Failed to add reaction", err);
+      }
+    },
+
+    async removeReaction(chatId: string, messageId: string, _emoji: string) {
+      try {
+        await bot.api.setMessageReaction(
+          parseInt(chatId, 10),
+          parseInt(messageId, 10),
+          [] as any,
+        );
+      } catch (err) {
+        log.warn("Failed to remove reaction", err);
       }
     },
   };
