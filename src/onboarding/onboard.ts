@@ -44,7 +44,7 @@ import {
 const log = createLogger("onboard");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Docker helpers
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -62,40 +62,46 @@ function safeChmod(path: string, mode: number): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dev-mode config detection (reads via secrets loader)
+// Unified config detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function detectExistingConfigFromSecrets(appConfigPath: string): Promise<ExistingConfig | null> {
-  try {
-    const existing = await loadSecrets(appConfigPath);
-    if (!existing) return null;
-
-    const result: ExistingConfig = {};
-    let hasAny = false;
-
-    if (existing.anthropic?.apiKey) { result.anthropicKey = existing.anthropic.apiKey; hasAny = true; }
-    if (existing.anthropic?.token) { result.anthropicToken = existing.anthropic.token; hasAny = true; }
-    if (existing.openai?.apiKey) { result.openaiKey = existing.openai.apiKey; hasAny = true; }
-    if (existing.discord?.token) { result.discordToken = existing.discord.token; hasAny = true; }
-    if (existing.telegram?.token) { result.telegramToken = existing.telegram.token; hasAny = true; }
-
-    return hasAny ? result : null;
-  } catch {
-    return null;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Docker-mode config detection (reads from ~/.owliabot)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface DockerExistingConfig extends ExistingConfig {
+interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
   anthropicOAuth?: boolean;
   openaiOAuth?: boolean;
 }
 
-function detectExistingConfigDocker(): DockerExistingConfig | null {
+/**
+ * Detect existing configuration for both dev and docker modes.
+ * - Docker: reads from ~/.owliabot directory (files on disk)
+ * - Dev: reads from secrets loader (storage helpers)
+ */
+async function detectExistingConfig(
+  dockerMode: boolean,
+  appConfigPath: string,
+): Promise<DetectedConfig | null> {
+  if (!dockerMode) {
+    // Dev mode: load via secrets loader
+    try {
+      const existing = await loadSecrets(appConfigPath);
+      if (!existing) return null;
+
+      const result: DetectedConfig = {};
+      let hasAny = false;
+
+      if (existing.anthropic?.apiKey) { result.anthropicKey = existing.anthropic.apiKey; hasAny = true; }
+      if (existing.anthropic?.token) { result.anthropicToken = existing.anthropic.token; hasAny = true; }
+      if (existing.openai?.apiKey) { result.openaiKey = existing.openai.apiKey; hasAny = true; }
+      if (existing.discord?.token) { result.discordToken = existing.discord.token; hasAny = true; }
+      if (existing.telegram?.token) { result.telegramToken = existing.telegram.token; hasAny = true; }
+
+      return hasAny ? result : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Docker mode: read from ~/.owliabot on disk
   const home = homedir();
   const configDir = join(home, ".owliabot");
   const secretsPath = join(configDir, "secrets.yaml");
@@ -103,9 +109,8 @@ function detectExistingConfigDocker(): DockerExistingConfig | null {
   const baseConfig = detectExistingConfigFromDir(configDir);
   if (!baseConfig && !existsSync(secretsPath)) return null;
 
-  const result: DockerExistingConfig = baseConfig ? { ...baseConfig } : {};
+  const result: DetectedConfig = baseConfig ? { ...baseConfig } : {};
 
-  // Check for openai-compatible key
   if (existsSync(secretsPath)) {
     const content = readFileSync(secretsPath, "utf-8");
     const compatMatch = content.match(/^openai-compatible:\s*\n\s+apiKey:\s*"?([^"\n]+)"?/m);
@@ -135,15 +140,6 @@ export interface OnboardOptions {
   outputDir?: string;
 }
 
-export async function runOnboarding(options: OnboardOptions = {}): Promise<void> {
-  const dockerMode = options.docker === true;
-
-  if (dockerMode) {
-    return runDockerMode(options);
-  }
-  return runDevMode(options);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared: provider Q&A
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +147,6 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 interface ProviderResult {
   providers: ProviderConfig[];
   secrets: SecretsConfig;
-  /** Flags for Docker-mode OAuth guidance */
   useAnthropic: boolean;
   useOpenaiCodex: boolean;
 }
@@ -383,370 +378,68 @@ async function askChannels(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dev mode
+// Single unified onboarding flow
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function runDevMode(options: OnboardOptions): Promise<void> {
+export async function runOnboarding(options: OnboardOptions = {}): Promise<void> {
+  const dockerMode = options.docker === true;
   const appConfigPath = options.appConfigPath ?? DEFAULT_APP_CONFIG_PATH;
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    printBanner(IS_DEV_MODE ? "(dev mode)" : "");
-    if (IS_DEV_MODE) {
-      info("Dev mode enabled (OWLIABOT_DEV=1). Config will be saved to ~/.owlia_dev/");
-    }
-
-    // Check for existing config
-    const existing = await detectExistingConfigFromSecrets(appConfigPath);
-    let reuseExisting = false;
-    const secrets: SecretsConfig = {};
-
-    if (existing) {
-      header("Existing configuration found");
-      info(`Found existing config at: ${dirname(appConfigPath)}`);
-
-      if (existing.anthropicKey) info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, 15)}...`);
-      if (existing.anthropicToken) info("Found Anthropic setup-token");
-      if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-      if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
-      if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
-
-      reuseExisting = await askYN(rl, "Do you want to reuse existing configuration?", true);
-      if (reuseExisting) {
-        success("Will reuse existing configuration");
-        if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
-        if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
-        if (existing.openaiKey) secrets.openai = { apiKey: existing.openaiKey };
-        if (existing.discordToken) secrets.discord = { token: existing.discordToken };
-        if (existing.telegramToken) secrets.telegram = { token: existing.telegramToken };
-      } else {
-        info("Will configure new credentials");
-      }
-    }
-
-    // Channels
-    header("Chat platforms");
-
-    let discordEnabled = false;
-    let telegramEnabled = false;
-
-    if (reuseExisting && (existing?.discordToken || existing?.telegramToken)) {
-      discordEnabled = !!existing.discordToken;
-      telegramEnabled = !!existing.telegramToken;
-      success("Reusing existing chat platform configuration:");
-      if (discordEnabled) info("  - Discord");
-      if (telegramEnabled) info("  - Telegram");
-    } else {
-      const ch = await askChannels(rl, secrets, false);
-      discordEnabled = ch.discordEnabled;
-      telegramEnabled = ch.telegramEnabled;
-    }
-
-    // Workspace
-    header("Workspace");
-    const defaultWorkspace = join(dirname(appConfigPath), "workspace");
-    const workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
-    success(`Workspace: ${workspace}`);
-
-    // Provider selection
-    header("AI provider setup");
-
-    let providers: ProviderConfig[] = [];
-    let priority = 1;
-
-    const hasExistingProvider = reuseExisting && (existing?.anthropicKey || existing?.anthropicToken || existing?.openaiKey);
-
-    if (hasExistingProvider) {
-      success("Reusing existing AI provider configuration");
-
-      if (existing?.anthropicKey || existing?.anthropicToken) {
-        providers.push({
-          id: "anthropic",
-          model: DEFAULT_MODELS.anthropic,
-          apiKey: existing.anthropicToken ? "secrets" : (existing.anthropicKey ? "secrets" : "env"),
-          priority: priority++,
-        } as ProviderConfig);
-      }
-      if (existing?.openaiKey) {
-        providers.push({
-          id: "openai",
-          model: DEFAULT_MODELS.openai,
-          apiKey: "secrets",
-          priority: priority++,
-        } as ProviderConfig);
-      }
-    } else {
-      const result = await askProviders(rl, false);
-      providers = result.providers;
-      Object.assign(secrets, result.secrets);
-    }
-
-    if (providers.length === 0) {
-      warn("No provider configured. Add one later in the config file.");
-      providers.push({
-        id: "anthropic",
-        model: DEFAULT_MODELS.anthropic,
-        apiKey: "env",
-        priority: 1,
-      } as ProviderConfig);
-    }
-
-    // Gateway HTTP (optional)
-    header("Gateway HTTP (optional)");
-    info("Gateway HTTP provides a REST API for health checks and integrations.");
-
-    const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
-    let gatewayConfig: { http?: { host: string; port: number; token?: string } } | undefined;
-
-    if (enableGateway) {
-      const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);
-      const token = randomBytes(16).toString("hex");
-      info(`Generated gateway token: ${token.slice(0, 8)}...`);
-
-      gatewayConfig = {
-        http: {
-          host: "127.0.0.1",
-          port,
-          token,
-        },
-      };
-      success(`Gateway HTTP enabled on port ${port}`);
-    }
-
-    // Default memory search config
-    const memorySearchConfig: MemorySearchConfig = {
-      enabled: true,
-      provider: "sqlite",
-      fallback: "naive",
-      store: {
-        path: join(workspace, "memory", "{agentId}.sqlite"),
-      },
-      extraPaths: [],
-      sources: ["files"],
-      indexing: {
-        autoIndex: true,
-        minIntervalMs: 5 * 60 * 1000,
-      },
-    };
-
-    // Default system capability config
-    const systemConfig: SystemCapabilityConfig = {
-      exec: {
-        commandAllowList: [
-          "ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "wc",
-          "date", "env", "which", "file", "stat", "du", "df", "curl",
-          "rm", "mkdir", "touch", "mv", "cp",
-        ],
-        envAllowList: ["PATH", "HOME", "USER", "LANG", "LC_ALL"],
-        timeoutMs: 60_000,
-        maxOutputBytes: 256 * 1024,
-      },
-      web: {
-        domainAllowList: [],
-        domainDenyList: [],
-        allowPrivateNetworks: false,
-        timeoutMs: 15_000,
-        maxResponseBytes: 512 * 1024,
-        blockOnSecret: true,
-      },
-      webSearch: {
-        defaultProvider: "duckduckgo",
-        timeoutMs: 15_000,
-        maxResults: 10,
-      },
-    };
-
-    // Build config
-    const config: AppConfig = {
-      workspace,
-      providers,
-      memorySearch: memorySearchConfig,
-      system: systemConfig,
-    };
-
-    // Collect user allowlists for channels and writeGate
-    const userAllowLists: { discord: string[]; telegram: string[] } = {
-      discord: [],
-      telegram: [],
-    };
-
-    if (discordEnabled) {
-      header("Discord configuration");
-      info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
-      info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
-      console.log("");
-
-      const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
-      const channelAllowList = channelIds.split(",").map((s) => s.trim()).filter(Boolean);
-
-      const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
-      const memberAllowList = memberIds.split(",").map((s) => s.trim()).filter(Boolean);
-      userAllowLists.discord = memberAllowList;
-
-      config.discord = {
-        requireMentionInGuild: true,
-        channelAllowList,
-        ...(memberAllowList.length > 0 && { memberAllowList }),
-      };
-
-      if (memberAllowList.length > 0) {
-        success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
-      }
-    }
-
-    if (telegramEnabled) {
-      header("Telegram configuration");
-
-      const telegramUserIds = await ask(rl, "User allowlist - user IDs allowed to interact (comma-separated): ");
-      const allowList = telegramUserIds.split(",").map((s) => s.trim()).filter(Boolean);
-      userAllowLists.telegram = allowList;
-
-      config.telegram = {
-        ...(allowList.length > 0 && { allowList }),
-      };
-
-      if (allowList.length > 0) {
-        success(`Telegram user allowlist: ${allowList.join(", ")}`);
-      }
-    }
-
-    // Optional Clawlet wallet setup
-    const walletConfig = await runClawletOnboarding(rl, secrets);
-    if (walletConfig.enabled) {
-      config.wallet = {
-        clawlet: {
-          enabled: true,
-          baseUrl: walletConfig.baseUrl,
-          requestTimeout: 30000,
-          defaultChainId: walletConfig.defaultChainId,
-          defaultAddress: walletConfig.defaultAddress,
-        },
-      };
-    }
-
-    // Security: writeGate allowList
-    const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
-
-    if (allUserIds.length > 0) {
-      header("Write tools security");
-      info("Users in the write-tool allowlist can use file write/edit tools.");
-      info(`Auto-included from channel allowlists: ${allUserIds.join(", ")}`);
-
-      const writeAllowListAns = await ask(rl, "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ");
-      const additionalIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
-
-      const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
-
-      if (writeToolAllowList.length > 0) {
-        config.tools = {
-          ...(config.tools ?? {}),
-          allowWrite: true,
-        };
-        config.security = {
-          writeGateEnabled: false,
-          writeToolAllowList,
-          writeToolConfirmation: false,
-        };
-        success("Filesystem write tools enabled (write_file/edit_file/apply_patch)");
-        success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
-        success("Write-gate globally disabled");
-        success("Write-tool confirmation disabled (allowlisted users can write directly)");
-      }
-    }
-
-    if (gatewayConfig) {
-      config.gateway = gatewayConfig;
-    }
-
-    // Save config
-    header("Saving configuration");
-
-    await saveAppConfig(config, appConfigPath);
-    success(`Saved config to: ${appConfigPath}`);
-
-    const hasSecrets = Object.keys(secrets).length > 0;
-    if (hasSecrets) {
-      await saveSecrets(appConfigPath, secrets);
-      success(`Saved secrets to: ${dirname(appConfigPath)}/secrets.yaml`);
-    }
-
-    // Initialize workspace
-    const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
-    if (workspaceInit.wroteBootstrap) {
-      success("Created BOOTSTRAP.md for first-run setup");
-    }
-    if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
-      success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
-    }
-
-    // Next steps
-    header("Done!");
-    console.log("Next steps:");
-
-    if (discordEnabled && !secrets.discord?.token) {
-      console.log("  • Set Discord token: owliabot token set discord");
-    }
-    if (telegramEnabled && !secrets.telegram?.token) {
-      console.log("  • Set Telegram token: owliabot token set telegram");
-    }
-    if (providers.some(p => p.apiKey === "env")) {
-      console.log("  • Set API key env var (ANTHROPIC_API_KEY or OPENAI_API_KEY)");
-    }
-    if (providers.some(p => p.apiKey === "oauth" && p.id === "openai-codex")) {
-      console.log("  • Complete OAuth: owliabot auth setup openai-codex");
-    }
-
-    console.log("  • Start the bot: owliabot start");
-    console.log("");
-    success("All set!");
-
-  } finally {
-    rl.close();
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Docker mode
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function runDockerMode(options: OnboardOptions): Promise<void> {
-  const configDir = options.configDir ?? "./config";
+  // ── Step 1: [Docker only] Pre-checks ──
+  let configDir = "";
+  let hostConfigDir = "";
+  let dockerConfigPath = "";
+  let shellConfigPath = "";
   const outputDir = options.outputDir ?? ".";
 
-  // Compute host paths for Docker volume mounts
-  let hostConfigDir: string;
-  if (configDir.startsWith("/app/")) {
-    hostConfigDir = "." + configDir.slice(4);
-  } else if (configDir.startsWith("/")) {
-    hostConfigDir = "./config";
-  } else {
-    hostConfigDir = configDir.startsWith("./") ? configDir : `./${configDir}`;
+  if (dockerMode) {
+    configDir = options.configDir ?? "./config";
+
+    if (configDir.startsWith("/app/")) {
+      hostConfigDir = "." + configDir.slice(4);
+    } else if (configDir.startsWith("/")) {
+      hostConfigDir = "./config";
+    } else {
+      hostConfigDir = configDir.startsWith("./") ? configDir : `./${configDir}`;
+    }
+    dockerConfigPath = hostConfigDir;
+    shellConfigPath = hostConfigDir.replace(/^\.\//, "$(pwd)/");
+
+    mkdirSync(configDir, { recursive: true });
   }
-  const dockerConfigPath = hostConfigDir;
-  const shellConfigPath = hostConfigDir.replace(/^\.\//, "$(pwd)/");
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
-    printBanner("(Docker)");
+    // ── Step 2: Banner ──
+    if (dockerMode) {
+      printBanner("(Docker)");
+    } else {
+      printBanner(IS_DEV_MODE ? "(dev mode)" : "");
+      if (IS_DEV_MODE) {
+        info("Dev mode enabled (OWLIABOT_DEV=1). Config will be saved to ~/.owlia_dev/");
+      }
+    }
 
-    mkdirSync(configDir, { recursive: true });
-
-    // Check for existing config
-    const existing = detectExistingConfigDocker();
+    // ── Step 3: Detect existing config & ask to reuse ──
+    const existing = await detectExistingConfig(dockerMode, appConfigPath);
     let reuseExisting = false;
 
     if (existing) {
       header("Existing configuration found");
-      info("Found existing config at: ~/.owliabot");
+      info(`Found existing config at: ${dockerMode ? "~/.owliabot" : dirname(appConfigPath)}`);
 
-      if (existing.anthropicKey) info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, 10)}...`);
-      if (existing.anthropicOAuth) info("Found Anthropic OAuth token");
+      if (existing.anthropicKey) {
+        const truncLen = dockerMode ? 10 : 15;
+        info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, truncLen)}...`);
+      }
+      if (existing.anthropicToken) info("Found Anthropic setup-token");
+      if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth token");
       if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-      if (existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
+      if (dockerMode && existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
       if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
       if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
-      if (existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);
+      if (dockerMode && existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);
 
       reuseExisting = await askYN(rl, "Do you want to reuse existing configuration?", true);
       if (reuseExisting) {
@@ -756,7 +449,7 @@ async function runDockerMode(options: OnboardOptions): Promise<void> {
       }
     }
 
-    // ── AI Providers ──
+    // ── Step 4: Ask providers ──
     header("AI provider setup");
 
     let secrets: SecretsConfig = {};
@@ -766,164 +459,392 @@ async function runDockerMode(options: OnboardOptions): Promise<void> {
     let priority = 1;
 
     if (reuseExisting && existing) {
-      if (existing.anthropicKey || existing.anthropicOAuth) {
-        useAnthropic = true;
-        if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
-        providers.push({
-          id: "anthropic",
-          model: DEFAULT_MODELS.anthropic,
-          apiKey: existing.anthropicKey ? "secrets" : "oauth",
-          priority: priority++,
-        } as ProviderConfig);
-        success("Reusing Anthropic configuration");
-      }
-      if (existing.openaiKey) {
-        secrets.openai = { apiKey: existing.openaiKey };
-        providers.push({
-          id: "openai",
-          model: DEFAULT_MODELS.openai,
-          apiKey: "secrets",
-          priority: priority++,
-        } as ProviderConfig);
-        success("Reusing OpenAI configuration");
-      }
-      if (existing.openaiOAuth) {
-        useOpenaiCodex = true;
-        providers.push({
-          id: "openai-codex",
-          model: DEFAULT_MODELS["openai-codex"],
-          apiKey: "oauth",
-          priority: priority++,
-        } as ProviderConfig);
-        success("Reusing OpenAI OAuth (openai-codex) configuration");
+      if (dockerMode) {
+        // Docker reuse
+        if (existing.anthropicKey || existing.anthropicOAuth) {
+          useAnthropic = true;
+          if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
+          providers.push({
+            id: "anthropic",
+            model: DEFAULT_MODELS.anthropic,
+            apiKey: existing.anthropicKey ? "secrets" : "oauth",
+            priority: priority++,
+          } as ProviderConfig);
+          success("Reusing Anthropic configuration");
+        }
+        if (existing.openaiKey) {
+          secrets.openai = { apiKey: existing.openaiKey };
+          providers.push({
+            id: "openai",
+            model: DEFAULT_MODELS.openai,
+            apiKey: "secrets",
+            priority: priority++,
+          } as ProviderConfig);
+          success("Reusing OpenAI configuration");
+        }
+        if (existing.openaiOAuth) {
+          useOpenaiCodex = true;
+          providers.push({
+            id: "openai-codex",
+            model: DEFAULT_MODELS["openai-codex"],
+            apiKey: "oauth",
+            priority: priority++,
+          } as ProviderConfig);
+          success("Reusing OpenAI OAuth (openai-codex) configuration");
+        }
+      } else {
+        // Dev reuse
+        const hasExistingProvider = existing.anthropicKey || existing.anthropicToken || existing.openaiKey;
+        if (hasExistingProvider) {
+          success("Reusing existing AI provider configuration");
+          if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
+          if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
+          if (existing.openaiKey) secrets.openai = { apiKey: existing.openaiKey };
+
+          if (existing.anthropicKey || existing.anthropicToken) {
+            providers.push({
+              id: "anthropic",
+              model: DEFAULT_MODELS.anthropic,
+              apiKey: existing.anthropicToken ? "secrets" : (existing.anthropicKey ? "secrets" : "env"),
+              priority: priority++,
+            } as ProviderConfig);
+          }
+          if (existing.openaiKey) {
+            providers.push({
+              id: "openai",
+              model: DEFAULT_MODELS.openai,
+              apiKey: "secrets",
+              priority: priority++,
+            } as ProviderConfig);
+          }
+        }
       }
     }
 
     if (providers.length === 0) {
-      const result = await askProviders(rl, true);
+      const result = await askProviders(rl, dockerMode);
       providers = result.providers;
-      secrets = result.secrets;
+      Object.assign(secrets, result.secrets);
       useAnthropic = result.useAnthropic;
       useOpenaiCodex = result.useOpenaiCodex;
     }
 
-    if (providers.length === 0) {
+    if (dockerMode && providers.length === 0) {
       errorMsg("You must select at least one provider.");
       process.exit(1);
     }
+    if (!dockerMode && providers.length === 0) {
+      warn("No provider configured. Add one later in the config file.");
+      providers.push({
+        id: "anthropic",
+        model: DEFAULT_MODELS.anthropic,
+        apiKey: "env",
+        priority: 1,
+      } as ProviderConfig);
+    }
 
-    // ── Chat platforms ──
-    header("Chat platform setup");
+    // ── Step 5: Ask channels ──
+    header("Chat platform" + (dockerMode ? " setup" : "s"));
 
+    let discordEnabled = false;
+    let telegramEnabled = false;
     let discordToken = "";
     let telegramToken = "";
 
     if (reuseExisting && (existing?.discordToken || existing?.telegramToken)) {
       success("Reusing existing chat platform configuration:");
       if (existing?.discordToken) {
+        discordEnabled = true;
         discordToken = existing.discordToken;
         secrets.discord = { token: discordToken };
         info("  - Discord");
       }
       if (existing?.telegramToken) {
+        telegramEnabled = true;
         telegramToken = existing.telegramToken;
         secrets.telegram = { token: telegramToken };
         info("  - Telegram");
       }
     } else {
-      const ch = await askChannels(rl, secrets, true);
+      const ch = await askChannels(rl, secrets, dockerMode);
+      discordEnabled = ch.discordEnabled;
+      telegramEnabled = ch.telegramEnabled;
       discordToken = ch.discordToken;
       telegramToken = ch.telegramToken;
     }
 
-    if (!discordToken && !telegramToken) {
+    if (dockerMode && !discordToken && !telegramToken) {
       errorMsg("You must configure at least one chat platform token.");
       process.exit(1);
     }
 
-    // ── Gateway HTTP ──
-    header("Gateway HTTP");
-    info("Gateway HTTP is used for health checks and REST API access.");
+    // ── Step 6: [Docker only] Gateway token + timezone ──
+    let gatewayToken = "";
+    let gatewayPort = "8787";
+    let tz = "UTC";
 
-    const gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
+    if (dockerMode) {
+      header("Gateway HTTP");
+      info("Gateway HTTP is used for health checks and REST API access.");
 
-    let gatewayToken = reuseExisting && existing?.gatewayToken ? existing.gatewayToken : "";
-    if (!gatewayToken) {
-      gatewayToken = randomBytes(16).toString("hex");
-      info("Generated a random gateway token.");
-    } else {
-      success("Reusing existing Gateway token");
+      gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
+
+      gatewayToken = reuseExisting && existing?.gatewayToken ? existing.gatewayToken : "";
+      if (!gatewayToken) {
+        gatewayToken = randomBytes(16).toString("hex");
+        info("Generated a random gateway token.");
+      } else {
+        success("Reusing existing Gateway token");
+      }
+
+      const confirmToken = await ask(rl, `Gateway token [${gatewayToken.slice(0, 8)}...]: `, true);
+      if (confirmToken) gatewayToken = confirmToken;
+      success("Gateway token set");
+
+      (secrets as any).gateway = { token: gatewayToken };
+
+      header("Other settings");
+      tz = await ask(rl, "Timezone [UTC]: ") || "UTC";
+      success(`Timezone: ${tz}`);
     }
 
-    const confirmToken = await ask(rl, `Gateway token [${gatewayToken.slice(0, 8)}...]: `, true);
-    if (confirmToken) gatewayToken = confirmToken;
-    success("Gateway token set");
+    // ── Dev-only: workspace, detailed config, clawlet, writeGate, optional gateway ──
+    let workspace = "";
+    let gatewayConfig: { http?: { host: string; port: number; token?: string } } | undefined;
+    let config: AppConfig | undefined;
 
-    (secrets as any).gateway = { token: gatewayToken };
+    if (!dockerMode) {
+      // Workspace
+      header("Workspace");
+      const defaultWorkspace = join(dirname(appConfigPath), "workspace");
+      workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
+      success(`Workspace: ${workspace}`);
 
-    // ── Timezone ──
-    header("Other settings");
-    const tz = await ask(rl, "Timezone [UTC]: ") || "UTC";
-    success(`Timezone: ${tz}`);
+      // Gateway HTTP (optional)
+      header("Gateway HTTP (optional)");
+      info("Gateway HTTP provides a REST API for health checks and integrations.");
 
-    // ── Write configs ──
-    header("Writing config");
+      const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
+      if (enableGateway) {
+        const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);
+        const token = randomBytes(16).toString("hex");
+        info(`Generated gateway token: ${token.slice(0, 8)}...`);
 
-    const home = homedir();
-    const owliabotHome = join(home, ".owliabot");
-    mkdirSync(owliabotHome, { recursive: true });
-    if (!safeChmod(owliabotHome, 0o700)) {
-      warn(`Could not chmod ${owliabotHome} - using host permissions (bind-mounted volume)`);
+        gatewayConfig = {
+          http: {
+            host: "127.0.0.1",
+            port,
+            token,
+          },
+        };
+        success(`Gateway HTTP enabled on port ${port}`);
+      }
+
+      // Default memory search config
+      const memorySearchConfig: MemorySearchConfig = {
+        enabled: true,
+        provider: "sqlite",
+        fallback: "naive",
+        store: {
+          path: join(workspace, "memory", "{agentId}.sqlite"),
+        },
+        extraPaths: [],
+        sources: ["files"],
+        indexing: {
+          autoIndex: true,
+          minIntervalMs: 5 * 60 * 1000,
+        },
+      };
+
+      // Default system capability config
+      const systemConfig: SystemCapabilityConfig = {
+        exec: {
+          commandAllowList: [
+            "ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "wc",
+            "date", "env", "which", "file", "stat", "du", "df", "curl",
+            "rm", "mkdir", "touch", "mv", "cp",
+          ],
+          envAllowList: ["PATH", "HOME", "USER", "LANG", "LC_ALL"],
+          timeoutMs: 60_000,
+          maxOutputBytes: 256 * 1024,
+        },
+        web: {
+          domainAllowList: [],
+          domainDenyList: [],
+          allowPrivateNetworks: false,
+          timeoutMs: 15_000,
+          maxResponseBytes: 512 * 1024,
+          blockOnSecret: true,
+        },
+        webSearch: {
+          defaultProvider: "duckduckgo",
+          timeoutMs: 15_000,
+          maxResults: 10,
+        },
+      };
+
+      // Build config
+      config = {
+        workspace,
+        providers,
+        memorySearch: memorySearchConfig,
+        system: systemConfig,
+      };
+
+      // Channel-specific config (allowlists etc.)
+      const userAllowLists: { discord: string[]; telegram: string[] } = {
+        discord: [],
+        telegram: [],
+      };
+
+      if (discordEnabled) {
+        header("Discord configuration");
+        info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
+        info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+        console.log("");
+
+        const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
+        const channelAllowList = channelIds.split(",").map((s) => s.trim()).filter(Boolean);
+
+        const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
+        const memberAllowList = memberIds.split(",").map((s) => s.trim()).filter(Boolean);
+        userAllowLists.discord = memberAllowList;
+
+        config.discord = {
+          requireMentionInGuild: true,
+          channelAllowList,
+          ...(memberAllowList.length > 0 && { memberAllowList }),
+        };
+
+        if (memberAllowList.length > 0) {
+          success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
+        }
+      }
+
+      if (telegramEnabled) {
+        header("Telegram configuration");
+
+        const telegramUserIds = await ask(rl, "User allowlist - user IDs allowed to interact (comma-separated): ");
+        const allowList = telegramUserIds.split(",").map((s) => s.trim()).filter(Boolean);
+        userAllowLists.telegram = allowList;
+
+        config.telegram = {
+          ...(allowList.length > 0 && { allowList }),
+        };
+
+        if (allowList.length > 0) {
+          success(`Telegram user allowlist: ${allowList.join(", ")}`);
+        }
+      }
+
+      // Optional Clawlet wallet setup
+      const walletConfig = await runClawletOnboarding(rl, secrets);
+      if (walletConfig.enabled) {
+        config.wallet = {
+          clawlet: {
+            enabled: true,
+            baseUrl: walletConfig.baseUrl,
+            requestTimeout: 30000,
+            defaultChainId: walletConfig.defaultChainId,
+            defaultAddress: walletConfig.defaultAddress,
+          },
+        };
+      }
+
+      // Security: writeGate allowList
+      const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
+
+      if (allUserIds.length > 0) {
+        header("Write tools security");
+        info("Users in the write-tool allowlist can use file write/edit tools.");
+        info(`Auto-included from channel allowlists: ${allUserIds.join(", ")}`);
+
+        const writeAllowListAns = await ask(rl, "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ");
+        const additionalIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
+
+        const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
+
+        if (writeToolAllowList.length > 0) {
+          config.tools = {
+            ...(config.tools ?? {}),
+            allowWrite: true,
+          };
+          config.security = {
+            writeGateEnabled: false,
+            writeToolAllowList,
+            writeToolConfirmation: false,
+          };
+          success("Filesystem write tools enabled (write_file/edit_file/apply_patch)");
+          success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
+          success("Write-gate globally disabled");
+          success("Write-tool confirmation disabled (allowlisted users can write directly)");
+        }
+      }
+
+      if (gatewayConfig) {
+        config.gateway = gatewayConfig;
+      }
     }
-    mkdirSync(join(owliabotHome, "auth"), { recursive: true });
 
-    // Write secrets.yaml
-    const secretsData = {
-      anthropic: { apiKey: secrets.anthropic?.apiKey ?? "" },
-      openai: { apiKey: secrets.openai?.apiKey ?? "" },
-      "openai-compatible": { apiKey: (secrets as any)["openai-compatible"]?.apiKey ?? "" },
-      discord: { token: secrets.discord?.token ?? "" },
-      telegram: { token: secrets.telegram?.token ?? "" },
-      gateway: { token: gatewayToken },
-    };
+    // ── Step 7: Write app.yaml + secrets.yaml ──
+    header(dockerMode ? "Writing config" : "Saving configuration");
 
-    const secretsYaml = `# OwliaBot Secrets
+    if (dockerMode) {
+      const home = homedir();
+      const owliabotHome = join(home, ".owliabot");
+      mkdirSync(owliabotHome, { recursive: true });
+      if (!safeChmod(owliabotHome, 0o700)) {
+        warn(`Could not chmod ${owliabotHome} - using host permissions (bind-mounted volume)`);
+      }
+      mkdirSync(join(owliabotHome, "auth"), { recursive: true });
+
+      // Write secrets.yaml
+      const secretsData = {
+        anthropic: { apiKey: secrets.anthropic?.apiKey ?? "" },
+        openai: { apiKey: secrets.openai?.apiKey ?? "" },
+        "openai-compatible": { apiKey: (secrets as any)["openai-compatible"]?.apiKey ?? "" },
+        discord: { token: secrets.discord?.token ?? "" },
+        telegram: { token: secrets.telegram?.token ?? "" },
+        gateway: { token: gatewayToken },
+      };
+
+      const secretsYaml = `# OwliaBot Secrets
 # Generated by onboard on ${new Date().toISOString()}
 # This file contains sensitive information. Do NOT commit it.
 
 ${yamlStringify(secretsData, { indent: 2 })}`;
 
-    const secretsPath = join(owliabotHome, "secrets.yaml");
-    writeFileSync(secretsPath, secretsYaml);
-    if (safeChmod(secretsPath, 0o600)) {
-      success(`Wrote ${secretsPath} (chmod 600)`);
-    } else {
-      warn(`Wrote ${secretsPath} (chmod skipped - host-mounted volume, ensure host permissions are secure)`);
-    }
+      const secretsPath = join(owliabotHome, "secrets.yaml");
+      writeFileSync(secretsPath, secretsYaml);
+      if (safeChmod(secretsPath, 0o600)) {
+        success(`Wrote ${secretsPath} (chmod 600)`);
+      } else {
+        warn(`Wrote ${secretsPath} (chmod skipped - host-mounted volume, ensure host permissions are secure)`);
+      }
 
-    // Write app.yaml
-    let appYaml = `# OwliaBot config
+      // Write app.yaml
+      let appYaml = `# OwliaBot config
 # Generated by onboard on ${new Date().toISOString()}
 # Secrets are in ~/.owliabot/secrets.yaml
 
 providers:
 `;
 
-    for (const p of providers) {
-      appYaml += `  - id: ${p.id}\n`;
-      appYaml += `    model: ${p.model}\n`;
-      appYaml += `    apiKey: ${p.apiKey}\n`;
-      if ((p as any).baseUrl) {
-        appYaml += `    baseUrl: ${(p as any).baseUrl}\n`;
+      for (const p of providers) {
+        appYaml += `  - id: ${p.id}\n`;
+        appYaml += `    model: ${p.model}\n`;
+        appYaml += `    apiKey: ${p.apiKey}\n`;
+        if ((p as any).baseUrl) {
+          appYaml += `    baseUrl: ${(p as any).baseUrl}\n`;
+        }
+        appYaml += `    priority: ${p.priority}\n`;
       }
-      appYaml += `    priority: ${p.priority}\n`;
-    }
 
-    appYaml += `\n# Chat platform config (tokens are read from secrets.yaml)\n`;
-    if (discordToken) appYaml += `discord:\n  enabled: true\n`;
-    if (telegramToken) appYaml += `telegram:\n  enabled: true\n`;
+      appYaml += `\n# Chat platform config (tokens are read from secrets.yaml)\n`;
+      if (discordToken) appYaml += `discord:\n  enabled: true\n`;
+      if (telegramToken) appYaml += `telegram:\n  enabled: true\n`;
 
-    appYaml += `
+      appYaml += `
 # Gateway HTTP config (token resolved from secrets.yaml)
 gateway:
   http:
@@ -935,44 +856,37 @@ workspace: /app/workspace
 timezone: ${tz}
 `;
 
-    const appConfigPath = join(configDir, "app.yaml");
-    writeFileSync(appConfigPath, appYaml);
-    success(`Wrote ${appConfigPath}`);
+      const dockerAppConfigPath = join(configDir, "app.yaml");
+      writeFileSync(dockerAppConfigPath, appYaml);
+      success(`Wrote ${dockerAppConfigPath}`);
 
-    // Create symlink for secrets
-    const secretsLink = join(configDir, "secrets.yaml");
-    try {
-      const { symlinkSync, unlinkSync } = await import("node:fs");
-      try { unlinkSync(secretsLink); } catch {}
-      symlinkSync(secretsPath, secretsLink);
-      success(`Linked ${secretsLink} -> ${secretsPath}`);
-    } catch {
-      info("Note: Could not create symlink. Mount secrets.yaml manually.");
+      // Create symlink for secrets
+      const secretsLink = join(configDir, "secrets.yaml");
+      try {
+        const { symlinkSync, unlinkSync } = await import("node:fs");
+        try { unlinkSync(secretsLink); } catch {}
+        symlinkSync(secretsPath, secretsLink);
+        success(`Linked ${secretsLink} -> ${secretsPath}`);
+      } catch {
+        info("Note: Could not create symlink. Mount secrets.yaml manually.");
+      }
+    } else {
+      // Dev mode: use storage helpers
+      await saveAppConfig(config!, appConfigPath);
+      success(`Saved config to: ${appConfigPath}`);
+
+      const hasSecrets = Object.keys(secrets).length > 0;
+      if (hasSecrets) {
+        await saveSecrets(appConfigPath, secrets);
+        success(`Saved secrets to: ${dirname(appConfigPath)}/secrets.yaml`);
+      }
     }
 
-    // ── Docker output ──
-    header("Docker commands");
+    // ── Step 8: [Docker only] Generate docker-compose.yml ──
+    if (dockerMode) {
+      const image = "ghcr.io/owliabot/owliabot:latest";
 
-    const image = "ghcr.io/owliabot/owliabot:latest";
-
-    // Docker run command
-    console.log("Docker run command:");
-    console.log(`
-docker run -d \\
-  --name owliabot \\
-  --restart unless-stopped \\
-  -p 127.0.0.1:${gatewayPort}:8787 \\
-  -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
-  -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
-  -v ${shellConfigPath}/app.yaml:/app/config/app.yaml:ro \\
-  -v owliabot_workspace:/app/workspace \\
-  -e TZ=${tz} \\
-  ${image} \\
-  start -c /app/config/app.yaml
-`);
-
-    // docker-compose.yml
-    const composeYaml = `# docker-compose.yml for OwliaBot
+      const composeYaml = `# docker-compose.yml for OwliaBot
 # Generated by onboard
 
 services:
@@ -1002,49 +916,100 @@ volumes:
     name: owliabot_workspace
 `;
 
-    const composePath = join(outputDir, "docker-compose.yml");
-    writeFileSync(composePath, composeYaml);
-    success(`Wrote ${composePath}`);
-    console.log("\nTo start:");
-    console.log("  docker compose up -d     # Docker Compose v2");
-    console.log("  docker-compose up -d     # Docker Compose v1");
-
-    // ── Summary ──
-    header("Done");
-
-    console.log("Files created:");
-    console.log("  - ~/.owliabot/secrets.yaml   (sensitive)");
-    console.log("  - ~/.owliabot/auth/          (OAuth tokens)");
-    console.log("  - ./config/app.yaml          (app config)");
-    console.log("  - ./docker-compose.yml       (Docker Compose)");
-    console.log("");
-
-    const needsOAuth = (useAnthropic && !secrets.anthropic?.apiKey) || useOpenaiCodex;
-
-    console.log("Next steps:");
-    console.log("  1. Start the container:");
-    console.log("     docker compose up -d");
-    console.log("");
-    if (needsOAuth) {
-      console.log("  2. Set up OAuth authentication (run after container is started):");
-      if (useAnthropic && !secrets.anthropic?.apiKey) {
-        console.log("     docker exec -it owliabot owliabot auth setup anthropic");
-      }
-      if (useOpenaiCodex) {
-        console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
-      }
-      console.log("");
-      console.log("  3. Check logs:");
-    } else {
-      console.log("  2. Check logs:");
+      const composePath = join(outputDir, "docker-compose.yml");
+      writeFileSync(composePath, composeYaml);
+      success(`Wrote ${composePath}`);
     }
-    console.log("     docker compose logs -f");
-    console.log("");
 
-    console.log("Gateway HTTP:");
-    console.log(`  - URL:   http://localhost:${gatewayPort}`);
-    console.log(`  - Token: ${gatewayToken.slice(0, 8)}...`);
-    console.log("");
+    // ── Step 9: [Docker only] Print docker commands ──
+    // ── Step 10: [Dev only] Init workspace, print next steps ──
+    if (dockerMode) {
+      const image = "ghcr.io/owliabot/owliabot:latest";
+
+      header("Docker commands");
+      console.log("Docker run command:");
+      console.log(`
+docker run -d \\
+  --name owliabot \\
+  --restart unless-stopped \\
+  -p 127.0.0.1:${gatewayPort}:8787 \\
+  -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
+  -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
+  -v ${shellConfigPath}/app.yaml:/app/config/app.yaml:ro \\
+  -v owliabot_workspace:/app/workspace \\
+  -e TZ=${tz} \\
+  ${image} \\
+  start -c /app/config/app.yaml
+`);
+
+      console.log("To start:");
+      console.log("  docker compose up -d     # Docker Compose v2");
+      console.log("  docker-compose up -d     # Docker Compose v1");
+
+      header("Done");
+
+      console.log("Files created:");
+      console.log("  - ~/.owliabot/secrets.yaml   (sensitive)");
+      console.log("  - ~/.owliabot/auth/          (OAuth tokens)");
+      console.log("  - ./config/app.yaml          (app config)");
+      console.log("  - ./docker-compose.yml       (Docker Compose)");
+      console.log("");
+
+      const needsOAuth = (useAnthropic && !secrets.anthropic?.apiKey) || useOpenaiCodex;
+
+      console.log("Next steps:");
+      console.log("  1. Start the container:");
+      console.log("     docker compose up -d");
+      console.log("");
+      if (needsOAuth) {
+        console.log("  2. Set up OAuth authentication (run after container is started):");
+        if (useAnthropic && !secrets.anthropic?.apiKey) {
+          console.log("     docker exec -it owliabot owliabot auth setup anthropic");
+        }
+        if (useOpenaiCodex) {
+          console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
+        }
+        console.log("");
+        console.log("  3. Check logs:");
+      } else {
+        console.log("  2. Check logs:");
+      }
+      console.log("     docker compose logs -f");
+      console.log("");
+
+      console.log("Gateway HTTP:");
+      console.log(`  - URL:   http://localhost:${gatewayPort}`);
+      console.log(`  - Token: ${gatewayToken.slice(0, 8)}...`);
+      console.log("");
+    } else {
+      // Dev mode: init workspace + next steps
+      const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
+      if (workspaceInit.wroteBootstrap) {
+        success("Created BOOTSTRAP.md for first-run setup");
+      }
+      if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
+        success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
+      }
+
+      header("Done!");
+      console.log("Next steps:");
+
+      if (discordEnabled && !secrets.discord?.token) {
+        console.log("  • Set Discord token: owliabot token set discord");
+      }
+      if (telegramEnabled && !secrets.telegram?.token) {
+        console.log("  • Set Telegram token: owliabot token set telegram");
+      }
+      if (providers.some(p => p.apiKey === "env")) {
+        console.log("  • Set API key env var (ANTHROPIC_API_KEY or OPENAI_API_KEY)");
+      }
+      if (providers.some(p => p.apiKey === "oauth" && p.id === "openai-codex")) {
+        console.log("  • Complete OAuth: owliabot auth setup openai-codex");
+      }
+
+      console.log("  • Start the bot: owliabot start");
+      console.log("");
+    }
 
     success("All set!");
 
