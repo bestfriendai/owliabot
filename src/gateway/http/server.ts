@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createStore } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
+import { createNoopAuditLogger } from "./noop-audit.js";
 import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
 import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
@@ -309,6 +310,7 @@ export async function startGatewayHttp(opts: {
 
       const resultsMap = await executeToolCalls(toolCalls, {
         registry: tools,
+        auditLogger: createNoopAuditLogger(),
         context: {
           sessionKey: `gateway:${deviceId}`,
           agentId: "gateway/http",
