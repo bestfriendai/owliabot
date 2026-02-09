@@ -228,4 +228,59 @@ describe("telegram plugin", () => {
     // Second call should be skipped due to caching.
     expect(bot.api.setMessageReaction).toHaveBeenCalledTimes(1);
   });
+
+  it("does not show typing for unmentioned group messages", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const handler = vi.fn(async () => undefined);
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+
+    const setCalls: any[] = [];
+    const ctx = makeCtx({
+      chat: { type: "group", id: -100999, title: "Test Group" },
+      message: { text: "hello", message_id: 1, date: 1700000000 },
+    });
+    Object.defineProperty(ctx, "chatAction", {
+      configurable: true,
+      get: () => null,
+      set: (v) => { setCalls.push(v); },
+    });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    // No typing (no sets at all)
+    expect(setCalls.length).toBe(0);
+  });
+
+  it("shows typing for group commands (treated as mention)", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const handler = vi.fn(async () => undefined);
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+
+    const setCalls: any[] = [];
+    const ctx = makeCtx({
+      chat: { type: "group", id: -100999, title: "Test Group" },
+      message: { text: "/start", message_id: 1, date: 1700000000 },
+    });
+    Object.defineProperty(ctx, "chatAction", {
+      configurable: true,
+      get: () => null,
+      set: (v) => { setCalls.push(v); },
+    });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(setCalls).toContain("typing");
+  });
 });

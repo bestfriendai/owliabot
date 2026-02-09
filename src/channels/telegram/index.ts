@@ -91,6 +91,7 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
   const bot = new Bot<Context & AutoChatActionFlavor>(config.token);
   let messageHandler: MessageHandler | null = null;
   const reactionDisabledChats = new Set<string>();
+  let chatActionInstalled = false;
 
   // Filled on start()
   let botUsername: string | null = null;
@@ -110,6 +111,11 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
     async start() {
       log.info("Starting Telegram bot...");
+
+      if (!chatActionInstalled) {
+        bot.use(autoChatAction());
+        chatActionInstalled = true;
+      }
 
       // Cache bot identity for mention / reply detection
       try {
@@ -205,13 +211,19 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
         };
 
         try {
-          // Send "typing..." only for messages the bot will actually handle.
-          // Use autoChatAction as local middleware so it keeps resending
-          // the indicator periodically for long-running responses.
-          const chatAction = autoChatAction();
-          await chatAction(ctx, async () => {
+          // Only show typing for DMs or explicit group invocations (mentions / replies / commands).
+          // For group chatter we won't respond to, avoid noisy typing indicators.
+          const shouldShowTyping = chatType === "direct" || mentioned;
+
+          if (shouldShowTyping) {
+            // NOTE: autoChatAction only sends indicators when ctx.chatAction is set.
+            ctx.chatAction = "typing";
+          }
+          try {
             await messageHandler!(msgCtx);
-          });
+          } finally {
+            if (shouldShowTyping) ctx.chatAction = null as any;
+          }
         } catch (err) {
           log.error("Error handling message", err);
         }
