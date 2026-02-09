@@ -40,13 +40,21 @@ vi.mock("node:os", () => ({
 }));
 
 describe("infra-init", () => {
+  const prevHome = process.env.HOME;
+  const prevOwliabotHome = process.env.OWLIABOT_HOME;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    process.env.HOME = "/home/test";
+    delete process.env.OWLIABOT_HOME;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    process.env.HOME = prevHome;
+    if (prevOwliabotHome == null) delete process.env.OWLIABOT_HOME;
+    else process.env.OWLIABOT_HOME = prevOwliabotHome;
   });
 
   describe("createInfraContext", () => {
@@ -70,7 +78,7 @@ describe("infra-init", () => {
       createInfraContext({});
       
       expect(createInfraStore).toHaveBeenCalledWith({
-        sqlitePath: "/home/test/.owliabot/infra.db",
+        sqlitePath: "/home/test/.owliabot/gateway/infra.db",
       });
     });
 

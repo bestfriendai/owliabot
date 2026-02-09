@@ -156,13 +156,11 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
-      - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
-      - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ./config/app.yaml:/app/config/app.yaml:ro
-      - owliabot_workspace:/app/workspace
+      - ~/.owliabot:/home/owliabot/.owliabot
+      - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=UTC
-    command: ["start", "-c", "/app/config/app.yaml"]
+    command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
 `;
       writeFileSync(composePath, content);
       
@@ -171,7 +169,7 @@ services:
       const yaml = readFileSync(composePath, "utf-8");
       expect(yaml).toContain("ghcr.io/owliabot/owliabot:latest");
       expect(yaml).toContain("127.0.0.1:8787:8787");
-      expect(yaml).toContain("secrets.yaml:/app/config/secrets.yaml:ro");
+      expect(yaml).toContain("~/.owliabot:/home/owliabot/.owliabot");
       expect(yaml).toContain("restart: unless-stopped");
     });
   });

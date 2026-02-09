@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
 import type { AuditEntry } from "./logger.js";
 import type { Tier } from "../policy/types.js";
+import { defaultAuditArchiveDir, defaultAuditLogPath } from "../utils/paths.js";
 
 const log = createLogger("audit-query");
 
@@ -42,7 +43,7 @@ export class AuditQueryService {
   private logPath: string;
   private archiveDir: string;
 
-  constructor(logPath = "workspace/audit.jsonl", archiveDir = "workspace/audit") {
+  constructor(logPath = defaultAuditLogPath(), archiveDir = defaultAuditArchiveDir()) {
     this.logPath = logPath;
     this.archiveDir = archiveDir;
   }

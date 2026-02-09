@@ -8,10 +8,14 @@ import { resolve, dirname, join } from "node:path";
 import { configSchema, type Config } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
 import { ZodError } from "zod";
+import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 
 const log = createLogger("config");
 
 export async function loadConfig(path: string): Promise<Config> {
+  // Ensure OWLIABOT_HOME is always defined so ${OWLIABOT_HOME} defaults expand.
+  ensureOwliabotHomeEnv();
+
   // Expand leading ~ (HOME)
   // - "~/x" => "$HOME/x"
   // - "~"   => "$HOME"
@@ -112,7 +116,8 @@ export async function loadConfig(path: string): Promise<Config> {
       secrets?.gateway?.token ?? process.env.OWLIABOT_GATEWAY_TOKEN ?? undefined;
   }
 
-  // Expand environment variables
+  // Expand environment variables on user-provided values (before schema defaults apply).
+  // Note: schema defaults may also contain ${VARS}; we expand again after parse.
   const expanded = expandEnvVars(raw) as any;
 
   // Backward-compat: map deprecated discord.requireMentionInGuild -> group.activation
@@ -122,10 +127,21 @@ export async function loadConfig(path: string): Promise<Config> {
     expanded.group.activation = expanded.discord.requireMentionInGuild ? "mention" : "always";
   }
 
-  // Validate with Zod
+  // Validate with Zod (applies defaults)
   let config: Config;
   try {
     config = configSchema.parse(expanded);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new Error(formatZodError(err));
+    }
+    throw err;
+  }
+
+  // Expand env vars again to cover schema defaults (e.g. ${OWLIABOT_HOME}/...).
+  // Re-parse to keep Zod guarantees.
+  try {
+    config = configSchema.parse(expandEnvVars(config));
   } catch (err) {
     if (err instanceof ZodError) {
       throw new Error(formatZodError(err));

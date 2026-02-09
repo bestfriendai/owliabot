@@ -35,6 +35,7 @@ vi.mock("node:fs", () => ({
 
 // Store original HOME value for cleanup
 let originalHome: string | undefined;
+let originalOwliabotHome: string | undefined;
 
 describe("skills-init", () => {
   beforeEach(() => {
@@ -42,7 +43,9 @@ describe("skills-init", () => {
     existingPaths = new Set();
     // Store and set HOME for testing
     originalHome = process.env.HOME;
+    originalOwliabotHome = process.env.OWLIABOT_HOME;
     process.env.HOME = "/home/test";
+    delete process.env.OWLIABOT_HOME;
     // Reset environment
     delete process.env.OWLIABOT_BUNDLED_SKILLS_DIR;
   });
@@ -53,6 +56,11 @@ describe("skills-init", () => {
       process.env.HOME = originalHome;
     } else {
       delete process.env.HOME;
+    }
+    if (originalOwliabotHome !== undefined) {
+      process.env.OWLIABOT_HOME = originalOwliabotHome;
+    } else {
+      delete process.env.OWLIABOT_HOME;
     }
   });
 

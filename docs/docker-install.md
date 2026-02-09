@@ -30,14 +30,13 @@ docker pull ghcr.io/owliabot/owliabot:latest
 ### Step 2: Run interactive onboard
 
 ```bash
-mkdir -p config workspace ~/.owliabot/auth
+mkdir -p ~/.owliabot/auth ~/.owliabot/workspace
 
 docker run --rm -it \
   -v ~/.owliabot:/home/owliabot/.owliabot \
-  -v $(pwd)/config:/app/config \
   -v $(pwd):/app/output \
   ghcr.io/owliabot/owliabot:latest \
-  onboard --docker --config-dir /app/config --output-dir /app/output
+  onboard --docker --output-dir /app/output
 ```
 
 The wizard will prompt for:
@@ -58,10 +57,10 @@ Or use the Docker run command printed by the onboard wizard.
 
 | File | Location | Description |
 |------|----------|-------------|
-| `app.yaml` | `./config/app.yaml` | Main configuration (non-sensitive) |
+| `app.yaml` | `~/.owliabot/app.yaml` | Main configuration (non-sensitive) |
 | `secrets.yaml` | `~/.owliabot/secrets.yaml` | API keys and tokens (chmod 600) |
 | `auth/` | `~/.owliabot/auth/` | OAuth tokens (chmod 700) |
-| `workspace` | `owliabot_workspace` (Docker volume) | Agent workspace (persistent) |
+| `workspace/` | `~/.owliabot/workspace/` | Agent workspace (persistent) |
 
 ## CLI Reference
 

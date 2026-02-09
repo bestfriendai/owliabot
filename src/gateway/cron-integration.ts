@@ -9,6 +9,7 @@ import { createLogger } from "../utils/logger.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Config } from "../config/schema.js";
+import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 
 const log = createLogger("cron");
 
@@ -65,8 +66,7 @@ export function createCronIntegration(deps: CronIntegrationDeps): {
   const { config } = deps;
 
   // Resolve store path
-  const defaultCronDir = join(homedir(), ".owliabot", "cron");
-  const storePath = config.cron?.store ?? join(defaultCronDir, "jobs.json");
+  const storePath = config.cron?.store ?? join(ensureOwliabotHomeEnv(), "cron", "jobs.json");
 
   // Build CronDeps
   const cronDeps: CronDeps = {

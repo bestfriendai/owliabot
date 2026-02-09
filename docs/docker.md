@@ -293,12 +293,10 @@ owliabot/
 ```
 ~/.owliabot/              # 敏感信息目录（Docker + CLI 共享）
 ├── secrets.yaml          # API Key, Token（权限 600）
+├── app.yaml              # 主配置（非敏感）
 └── auth/                 # OAuth 凭据
 
-./config/                 # 配置目录（可放在 workspace）
-└── app.yaml              # 主配置（引用 secrets）
-
-./workspace/              # 工作区
+~/.owliabot/workspace/    # 工作区（Docker + CLI 共享）
 ├── memory/               # 记忆文件
 └── gateway.db            # 数据库
 ```

@@ -19,6 +19,7 @@
 import http from "node:http";
 import { createStore, type Store } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
+import { createNoopAuditLogger } from "./noop-audit.js";
 import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
 import type { ToolRegistry } from "../../agent/tools/registry.js";
 import type { SessionStore } from "../../agent/session-store.js";
@@ -26,6 +27,8 @@ import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
 import { executeSystemRequest } from "../../system/executor.js";
 import type { SystemCapabilityConfig } from "../../system/interface.js";
+import { dirname } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 import {
   checkToolScope,
   checkSystemScope,
@@ -83,6 +86,12 @@ export interface GatewayHttpResult {
  */
 export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<GatewayHttpResult> {
   const { config, toolRegistry: tools, workspacePath } = opts;
+
+  // Ensure sqlite parent dir exists (better-sqlite3 won't create it).
+  const dbDir = dirname(config.sqlitePath);
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true });
+  }
 
   const store = createStore(config.sqlitePath);
   const pollBatchSize = config.pollBatchSize ?? 100;
@@ -685,6 +694,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
 
       const resultsMap = await executeToolCalls(toolCalls, {
         registry: tools,
+        auditLogger: createNoopAuditLogger(),
         context: {
           sessionKey: `gateway:${device.deviceId}`,
           agentId: "gateway/http",
@@ -869,8 +879,15 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
     );
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(config.port, config.host, () => resolve());
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: unknown) => {
+      reject(err);
+    };
+    server.once("error", onError);
+    server.listen(config.port, config.host, () => {
+      server.off("error", onError);
+      resolve();
+    });
   });
 
   const address = server.address();

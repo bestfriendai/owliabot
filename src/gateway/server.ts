@@ -15,6 +15,23 @@ import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
 import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
+import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth.js";
+
+const OAUTH_PROVIDERS = new Set<string>(["openai-codex"]);
+
+/** Check if any configured provider has usable credentials (secrets, env, or OAuth file). */
+async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: string }[]): Promise<boolean> {
+  if (providers.some((p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets")) {
+    return true;
+  }
+  for (const p of providers) {
+    if (p.apiKey === "oauth" && OAUTH_PROVIDERS.has(p.id)) {
+      const creds = await loadOAuthCredentials(p.id as SupportedOAuthProvider);
+      if (creds) return true;
+    }
+  }
+  return false;
+}
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { shouldHandleMessage } from "./activation.js";
@@ -46,6 +63,13 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync } from "node:fs";
+import {
+  defaultGatewayDir,
+  defaultUserSkillsDir,
+  ensureOwliabotHomeEnv,
+  resolvePathLike,
+  resolveOwliabotHome,
+} from "../utils/paths.js";
 
 /**
  * Resolve bundled skills directory (like OpenClaw's approach)
@@ -81,10 +105,7 @@ function resolveBundledSkillsDir(): string | undefined {
   candidates.push(resolve(process.cwd(), "skills"));
 
   // 4. Try common install locations
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-  if (homeDir) {
-    candidates.push(resolve(homeDir, ".owliabot", "bundled-skills"));
-  }
+  candidates.push(resolve(resolveOwliabotHome(), "bundled-skills"));
 
   // Find first existing directory
   for (const candidate of candidates) {
@@ -119,10 +140,10 @@ export async function startGateway(
   let infraStore: InfraStore | null = null;
   const infraConfig = config.infra;
   if (infraConfig?.enabled !== false) {
-    const infraDbPath = infraConfig?.sqlitePath?.replace(
-      /^~/,
-      homedir(),
-    ) ?? join(homedir(), ".owliabot", "infra.db");
+    ensureOwliabotHomeEnv();
+    const infraDbPath = infraConfig?.sqlitePath?.trim()
+      ? resolvePathLike(infraConfig.sqlitePath)
+      : join(defaultGatewayDir(), "infra.db");
 
     // Ensure parent directory exists
     const infraDbDir = dirname(infraDbPath);
@@ -191,7 +212,7 @@ export async function startGateway(
   const skillsEnabled = config.skills?.enabled ?? true;
   if (skillsEnabled) {
     const builtinSkillsDir = resolveBundledSkillsDir();
-    const userSkillsDir = join(homedir(), ".owliabot", "skills");
+    const userSkillsDir = defaultUserSkillsDir();
     const workspaceSkillsDir =
       config.skills?.directory ?? join(config.workspace, "skills");
 
@@ -300,10 +321,7 @@ export async function startGateway(
   }
 
   // Check if any provider has valid credentials
-  const hasValidProvider = config.providers.some(
-    (p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets"
-  );
-  if (!hasValidProvider) {
+  if (!await hasAnyValidProvider(config.providers)) {
     log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     log.warn("  ⚠ No valid provider credentials found.");
     log.warn("  Bot is running but cannot process messages.");
@@ -561,10 +579,7 @@ async function handleMessage(
   });
 
   // Check if any provider has valid credentials before entering the agentic loop
-  const hasValidProvider = config.providers.some(
-    (p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets"
-  );
-  if (!hasValidProvider) {
+  if (!await hasAnyValidProvider(config.providers)) {
     const noProviderMsg =
       "⚠️ AI provider not configured. Run `owliabot auth setup` to set up credentials.";
     const channel = channels.get(ctx.channel);
@@ -607,6 +622,10 @@ async function handleMessage(
       }
 
       log.info(`LLM requested ${response.toolCalls.length} tool calls`);
+      for (const call of response.toolCalls) {
+        const argsStr = JSON.stringify(call.arguments);
+        log.info(`  ↳ ${call.name}(${argsStr.length > 200 ? argsStr.slice(0, 200) + "…" : argsStr})`);
+      }
 
       // Execute tool calls
       const toolResults = await executeToolCalls(response.toolCalls, {
@@ -623,6 +642,12 @@ async function handleMessage(
         workspacePath: config.workspace,
         userId: ctx.from,
       });
+
+      for (const [id, result] of toolResults) {
+        const body = result.success ? (result.data ?? "") : (result.error ?? "");
+        const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
+        log.info(`  ↳ result [${id}] success=${result.success}: ${bodyStr.length > 300 ? bodyStr.slice(0, 300) + "…" : bodyStr}`);
+      }
 
       // Add assistant message with tool calls to conversation
       const assistantToolCallMessage: Message = {

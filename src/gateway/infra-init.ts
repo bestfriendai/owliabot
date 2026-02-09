@@ -9,6 +9,7 @@ import { createInfraStore, type InfraStore } from "../infra/index.js";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, mkdirSync } from "node:fs";
+import { defaultGatewayDir, ensureOwliabotHomeEnv, resolvePathLike } from "../utils/paths.js";
 
 const log = createLogger("gateway:infra");
 
@@ -52,8 +53,10 @@ export function createInfraContext(config?: InfraInitConfig): InfraContext {
   }
 
   // Resolve database path with ~ expansion
-  const dbPath = config?.sqlitePath?.replace(/^~/, homedir()) 
-    ?? join(homedir(), ".owliabot", "infra.db");
+  ensureOwliabotHomeEnv();
+  const dbPath = config?.sqlitePath?.trim()
+    ? resolvePathLike(config.sqlitePath)
+    : join(defaultGatewayDir(), "infra.db");
 
   // Ensure parent directory exists
   const dbDir = dirname(dbPath);

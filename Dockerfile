@@ -40,7 +40,7 @@ FROM node:22-alpine AS production
 
 # Install runtime dependencies for native modules
 # libc6-compat helps with some native bindings on Alpine
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat coreutils
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
@@ -53,6 +53,10 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+
+# Copy persona + bundled skills (needed for workspace initialization and runtime)
+COPY persona/ ./persona/
+COPY skills/ ./skills/
 
 # Copy config example for reference (users should mount their own config)
 COPY config.example.yaml ./config.example.yaml
@@ -73,6 +77,7 @@ USER owliabot
 
 # Set HOME for the non-root user (needed for ~/.owliabot and ~/.owlia_dev)
 ENV HOME=/home/owliabot
+ENV OWLIABOT_HOME=/home/owliabot/.owliabot
 
 # Expose gateway HTTP port (configurable, default 8787)
 EXPOSE 8787
@@ -83,9 +88,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8787/health || exit 1
 
 # Default config path - can be overridden via -c flag or volume mount
-ENV OWLIABOT_CONFIG_PATH=/app/config/app.yaml
+ENV OWLIABOT_CONFIG_PATH=/home/owliabot/.owliabot/app.yaml
 
 # Entry point: start the bot
 # Users can override command to run other CLI commands (onboard, auth, etc.)
 ENTRYPOINT ["node", "dist/entry.js"]
-CMD ["start", "-c", "/app/config/app.yaml"]
+CMD ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]

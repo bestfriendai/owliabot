@@ -8,6 +8,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { createLogger } from "../utils/logger.js";
+import { defaultAuditArchiveDir, defaultAuditLogPath } from "../utils/paths.js";
 
 const log = createLogger("audit-rotation");
 
@@ -24,7 +25,7 @@ export class AuditRotation {
   private logPath: string;
 
   constructor(
-    logPath = "workspace/audit.jsonl",
+    logPath = defaultAuditLogPath(),
     config: Partial<RotationConfig> = {}
   ) {
     this.logPath = logPath;
@@ -32,7 +33,7 @@ export class AuditRotation {
       maxSizeMb: config.maxSizeMb ?? 50,
       maxAgeDays: config.maxAgeDays ?? 1,
       compress: config.compress ?? true,
-      archiveDir: config.archiveDir ?? "workspace/audit",
+      archiveDir: config.archiveDir ?? defaultAuditArchiveDir(),
       keepDays: config.keepDays ?? 90,
     };
   }

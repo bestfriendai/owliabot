@@ -297,6 +297,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
   it("indexes transcript jsonl lines and returns them when sources includes transcripts", async () => {
     const dir = await makeTmpDir();
     const prevHome = process.env.HOME;
+    const prevOwliabotHome = process.env.OWLIABOT_HOME;
     try {
       await mkdir(join(dir, "memory"), { recursive: true });
       await writeFile(join(dir, "MEMORY.md"), "# Memory\n", "utf-8");
@@ -304,6 +305,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       // Put sessions under a controlled HOME directory (aligned with src/entry.ts).
       const home = join(dir, "home");
       process.env.HOME = home;
+      delete process.env.OWLIABOT_HOME;
 
       const sessionsDir = join(home, ".owliabot", "sessions");
       const transcriptsDir = join(sessionsDir, "transcripts");
@@ -347,6 +349,8 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       expect(results.map((r) => r.snippet).join("\n")).toContain("unicorn");
     } finally {
       process.env.HOME = prevHome;
+      if (prevOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = prevOwliabotHome;
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -354,9 +358,11 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
   it("fails closed: does not follow symlinks inside transcriptsDir", async () => {
     const dir = await makeTmpDir();
     const prevHome = process.env.HOME;
+    const prevOwliabotHome = process.env.OWLIABOT_HOME;
     try {
       const home = join(dir, "home");
       process.env.HOME = home;
+      delete process.env.OWLIABOT_HOME;
 
       const sessionsDir = join(home, ".owliabot", "sessions");
       const transcriptsDir = join(sessionsDir, "transcripts");
@@ -397,6 +403,8 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       expect(results).toEqual([]);
     } finally {
       process.env.HOME = prevHome;
+      if (prevOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = prevOwliabotHome;
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -404,9 +412,11 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
   it("fails closed: does not follow a symlinked transcripts directory", async () => {
     const dir = await makeTmpDir();
     const prevHome = process.env.HOME;
+    const prevOwliabotHome = process.env.OWLIABOT_HOME;
     try {
       const home = join(dir, "home");
       process.env.HOME = home;
+      delete process.env.OWLIABOT_HOME;
 
       const sessionsDir = join(home, ".owliabot", "sessions");
       const transcriptsDir = join(sessionsDir, "transcripts");
@@ -452,6 +462,8 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       expect(results).toEqual([]);
     } finally {
       process.env.HOME = prevHome;
+      if (prevOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = prevOwliabotHome;
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -459,6 +471,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
   it("back-compat: sqlite search still works for files if transcript tables are missing", async () => {
     const dir = await makeTmpDir();
     const prevHome = process.env.HOME;
+    const prevOwliabotHome = process.env.OWLIABOT_HOME;
     try {
       await mkdir(join(dir, "memory"), { recursive: true });
       await writeFile(join(dir, "MEMORY.md"), "alpha\n", "utf-8");
@@ -466,6 +479,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       // Ensure transcripts exist so the allowlist includes at least one sessionId.
       const home = join(dir, "home");
       process.env.HOME = home;
+      delete process.env.OWLIABOT_HOME;
 
       const transcriptsDir = join(home, ".owliabot", "sessions", "transcripts");
       await mkdir(transcriptsDir, { recursive: true });
@@ -509,6 +523,8 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       expect(results.map((r) => r.path)).toContain("MEMORY.md");
     } finally {
       process.env.HOME = prevHome;
+      if (prevOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = prevOwliabotHome;
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -516,9 +532,11 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
   it("returns top-N transcript matches deterministically (ORDER BY before LIMIT)", async () => {
     const dir = await makeTmpDir();
     const prevHome = process.env.HOME;
+    const prevOwliabotHome = process.env.OWLIABOT_HOME;
     try {
       const home = join(dir, "home");
       process.env.HOME = home;
+      delete process.env.OWLIABOT_HOME;
 
       const sessionsDir = join(home, ".owliabot", "sessions");
       const transcriptsDir = join(sessionsDir, "transcripts");
@@ -577,6 +595,8 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       expect(results[2].lines).toBe("3-3");
     } finally {
       process.env.HOME = prevHome;
+      if (prevOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = prevOwliabotHome;
       await rm(dir, { recursive: true, force: true });
     }
   });

@@ -23,16 +23,16 @@ async function run(cmd: string, args: string[], opts?: { cwd?: string }) {
 }
 
 async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: string[] }) {
-  // Updated prompts to match refactored onboard.ts with selectOption
-  // Includes Discord/Telegram allowlists and writeGate allowlist prompts
+  // Prompts must match the actual order in runOnboarding():
+  // 1) Providers → 2) Channels → 3) Workspace → 4) Gateway → 5) Allowlists → 6) WriteGate
   const prompts = [
+    "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
+    "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
+    "Model [claude-opus-4-5]: ",                         // Model
     "Select [1-3]: ",                                    // Chat platform: 3 = Both
     "Discord bot token (leave empty to set later): ",    // Discord token
     "Telegram bot token (leave empty to set later): ",   // Telegram token
     "Workspace path [",                                  // Workspace (default path is dynamic)
-    "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
-    "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
-    "Model [claude-opus-4-5]: ",                         // Model
     "Enable Gateway HTTP? [y/N]: ",                      // Gateway
     "Channel allowlist (comma-separated channel IDs, leave empty for all): ", // Discord channelAllowList
     "Member allowlist - user IDs allowed to interact (comma-separated): ",    // Discord memberAllowList
@@ -112,18 +112,18 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
     "runs onboarding, validates generated config, starts gateway, and exercises pairing + tool + events",
     async () => {
       // Step 2 + 3 — Execute onboard (simulate stdin, no real tokens)
-      // Answers match the new refactored prompts order including allowlists
+      // Answers must match prompt order: Providers → Channels → Workspace → Gateway → Allowlists → WriteGate
       await runOnboardCli({
         cwd: repoRoot,
         appYamlPath,
         answers: [
+          "1",                             // AI provider: 1 = Anthropic
+          "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
+          "",                              // Model (default claude-opus-4-5)
           "3",                             // Chat platform: 3 = Both (Discord + Telegram)
           "test-discord-token-e2e",        // Discord token
           "test-telegram-token-e2e",       // Telegram token
           workspacePath,                   // Workspace path
-          "1",                             // AI provider: 1 = Anthropic
-          "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
-          "",                              // Model (default claude-opus-4-5)
           "n",                             // Gateway HTTP: no
           "",                              // Discord channelAllowList (empty)
           "123456789",                     // Discord memberAllowList

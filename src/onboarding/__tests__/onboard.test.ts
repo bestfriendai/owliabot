@@ -53,6 +53,8 @@ describe("onboarding", () => {
     vi.clearAllMocks();
   });
 
+  // New unified flow order: providers → channels → workspace → gateway → config details
+
   it("writes config with anthropic setup-token and separates secrets", async () => {
     const appConfigPath = join(dir, "app.yaml");
     const workspacePath = join(dir, "workspace");
@@ -60,15 +62,14 @@ describe("onboarding", () => {
     // Create a valid setup-token (sk-ant-oat01- prefix + enough chars for 80 total)
     const setupToken = "sk-ant-oat01-" + "a".repeat(68); // 12 + 68 = 80 chars
 
-    // New flow: selectOption for platforms (3=Both), then tokens, workspace, provider selection
     answers = [
+      "1",                 // AI provider: 1 = Anthropic
+      setupToken,          // Anthropic setup-token
+      "",                  // Model (default: claude-opus-4-5)
       "3",                 // Chat platform: 3 = Both (Discord + Telegram)
       "discord-secret",    // Discord token
       "telegram-secret",   // Telegram token
       workspacePath,       // Workspace path
-      "1",                 // AI provider: 1 = Anthropic
-      setupToken,          // Setup-token
-      "",                  // Model (default: claude-opus-4-5)
       "n",                 // Gateway: no
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
@@ -108,12 +109,12 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "1",                 // Chat platform: 1 = Discord
-      "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
       "2",                 // AI provider: 2 = OpenAI
       "sk-test-key",       // OpenAI API key
       "gpt-4o-mini",       // Model
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
@@ -137,11 +138,11 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
+      "3",                 // AI provider: 3 = openai-codex
+      "n",                 // Skip OAuth for now
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
       workspacePath,       // Workspace path
-      "3",                 // AI provider: 3 = openai-codex
-      "n",                 // Skip OAuth for now
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
@@ -162,12 +163,12 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "1",                 // Chat platform: 1 = Discord
-      "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
       "1",                 // AI provider: 1 = Anthropic
       "sk-ant-api03-test-key",  // Anthropic standard API key
       "",                  // Model (default)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
@@ -192,12 +193,12 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "1",                 // Chat platform: 1 = Discord
-      "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (empty = use env var)
       "",                  // Model (default)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      workspacePath,       // Workspace path
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
@@ -217,15 +218,14 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
-      "1",                 // Chat platform: 1 = Discord
-      "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
       "2",                 // AI provider: 2 = OpenAI
       "",                  // OpenAI API key (empty = use env)
       "",                  // Model (default)
+      "2",                 // Chat platform: 2 = Telegram
+      "",                  // Telegram token (skip)
+      workspacePath,       // Workspace path
       "n",                 // Gateway: no
-      "",                  // Discord channelAllowList (empty)
-      "",                  // Discord memberAllowList (empty)
+      "",                  // Telegram allowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
@@ -243,12 +243,12 @@ describe("onboarding", () => {
     const expectedWorkspacePath = join(dir, "workspace");
 
     answers = [
-      "1",                 // Chat platform: 1 = Discord
-      "",                  // Discord token (skip)
-      "",                  // Workspace path (use default)
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
       "",                  // Model (default)
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      "",                  // Workspace path (use default)
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
@@ -266,13 +266,13 @@ describe("onboarding", () => {
     const workspacePath = join(dir, "workspace");
 
     answers = [
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (env)
+      "",                  // Model (default)
       "3",                 // Chat platform: 3 = Both
       "",                  // Discord token (skip)
       "",                  // Telegram token (skip)
       workspacePath,       // Workspace path
-      "1",                 // AI provider: 1 = Anthropic
-      "",                  // API key (env)
-      "",                  // Model (default)
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
