@@ -5,6 +5,14 @@
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
+import {
+  type FsRoot,
+  type FsRoots,
+  isSensitiveOwliabotHomePath,
+  normaliseFsRoot,
+  rootPathFor,
+  validateRelativePath,
+} from "./fs-roots.js";
 
 /**
  * Options for creating the list_files tool
@@ -12,21 +20,29 @@ import type { ToolDefinition } from "../interface.js";
 export interface ListFilesToolOptions {
   /** Workspace directory path */
   workspace: string;
+  /** Optional OwliaBot home directory path */
+  owliabotHome?: string;
 }
 
 export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition {
-  const { workspace: workspacePath } = opts;
+  const roots: FsRoots = { workspace: opts.workspace, owliabotHome: opts.owliabotHome };
   return {
     name: "list_files",
     description:
-      "List files and directories in the workspace. Use this to discover what files are available.",
+      "List files and directories in the workspace (or OWLIABOT_HOME when requested). Use this to discover what files are available.",
     parameters: {
       type: "object",
       properties: {
+        root: {
+          type: "string",
+          description:
+            "Root to list: 'workspace' (default) or 'owliabot_home'.",
+          enum: ["workspace", "owliabot_home"],
+        },
         path: {
           type: "string",
           description:
-            "Directory path relative to workspace (default: root). Example: 'memory' or 'memory/diary'",
+            "Directory path relative to selected root (default: root). Example: 'memory' or 'memory/diary'",
         },
       },
       required: [],
@@ -35,39 +51,48 @@ export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition 
       level: "read",
     },
     async execute(params) {
-      const { path: relativePath } = params as { path?: string };
+      const { root, path: relativePath } = params as { root?: FsRoot; path?: string };
+      const selectedRoot = normaliseFsRoot(root);
+      const rootPath = rootPathFor(roots, selectedRoot);
+      if (!rootPath) {
+        return {
+          success: false,
+          error: `Invalid root: ${selectedRoot} is not configured`,
+        };
+      }
 
       // Security: validate path
       if (relativePath) {
-        if (relativePath.startsWith("/") || relativePath.includes("\0")) {
+        const v = validateRelativePath(relativePath);
+        if (!v.ok) {
           return {
             success: false,
-            error: "Invalid path: must be relative to workspace",
+            error: "Invalid path: must be relative to the selected root",
           };
         }
       }
 
-      const absWorkspace = resolve(workspacePath);
+      const absRoot = resolve(rootPath);
       const targetPath = relativePath
-        ? resolve(workspacePath, relativePath)
-        : absWorkspace;
+        ? resolve(rootPath, relativePath)
+        : absRoot;
 
-      // Verify lexical path is within workspace
-      const rel = relative(absWorkspace, targetPath).replace(/\\/g, "/");
+      // Verify lexical path is within root
+      const rel = relative(absRoot, targetPath).replace(/\\/g, "/");
       // Allow empty rel (root) or rel that doesn't start with ..
       const inWorkspace = rel === "" || (rel.length > 0 && !rel.startsWith(".."));
       if (!inWorkspace) {
         return {
           success: false,
-          error: "Invalid path: must be relative to workspace",
+          error: "Invalid path: must be relative to the selected root",
         };
       }
 
       try {
-        // Verify realpath is within workspace (handles symlink escapes)
-        const realWorkspace = await realpath(absWorkspace);
+        // Verify realpath is within root (handles symlink escapes)
+        const realRoot = await realpath(absRoot);
         const realTarget = await realpath(targetPath);
-        const realRel = relative(realWorkspace, realTarget).replace(/\\/g, "/");
+        const realRel = relative(realRoot, realTarget).replace(/\\/g, "/");
         const realInWorkspace = realRel === "" || (realRel.length > 0 && !realRel.startsWith(".."));
         if (!realInWorkspace) {
           return {
@@ -76,10 +101,10 @@ export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition 
           };
         }
 
-        // Check if target is a symlink pointing outside workspace
+        // Check if target is a symlink pointing outside root
         const targetStat = await lstat(targetPath);
         if (targetStat.isSymbolicLink()) {
-          // Symlink is ok if it resolves within workspace (already checked above)
+          // Symlink is ok if it resolves within root (already checked above)
           // but we use realpath for actual directory operations
         }
 
@@ -90,6 +115,14 @@ export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition 
           // Skip hidden files
           if (entry.startsWith(".")) continue;
 
+          // OWLIABOT_HOME: skip known-sensitive entries and directories
+          if (selectedRoot === "owliabot_home") {
+            const entryRel = rel ? `${rel.replace(/\\/g, "/")}/${entry}` : entry;
+            if (isSensitiveOwliabotHomePath(entryRel) || isSensitiveOwliabotHomePath(entry)) {
+              continue;
+            }
+          }
+
           const entryPath = join(realTarget, entry);
           try {
             // Use lstat to not follow symlinks for type detection
@@ -99,7 +132,7 @@ export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition 
             if (entryStat.isSymbolicLink()) {
               try {
                 const realEntry = await realpath(entryPath);
-                const entryRel = relative(realWorkspace, realEntry).replace(/\\/g, "/");
+                const entryRel = relative(realRoot, realEntry).replace(/\\/g, "/");
                 const entryInWorkspace = entryRel === "" || (entryRel.length > 0 && !entryRel.startsWith(".."));
                 if (!entryInWorkspace) {
                   // Skip symlinks that escape workspace
@@ -136,6 +169,7 @@ export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition 
         return {
           success: true,
           data: {
+            root: selectedRoot,
             path: relativePath || ".",
             entries: results,
           },

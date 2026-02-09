@@ -17,7 +17,7 @@ describe("events/poll ACK mechanism", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -28,7 +28,7 @@ describe("events/poll ACK mechanism", () => {
     const { data }: any = await approve.json();
 
     // Make a tool call to generate an event
-    await fetch(server.baseUrl + "/command/tool", {
+    await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -43,7 +43,7 @@ describe("events/poll ACK mechanism", () => {
     });
 
     // Poll events
-    const res = await fetch(server.baseUrl + "/events/poll", {
+    const res = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-events",
         "X-Device-Token": data.deviceToken,
@@ -67,7 +67,7 @@ describe("events/poll ACK mechanism", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -85,7 +85,7 @@ describe("events/poll ACK mechanism", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // First poll - should get events
-    const poll1 = await fetch(server.baseUrl + "/events/poll", {
+    const poll1 = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-ack",
         "X-Device-Token": data.deviceToken,
@@ -96,20 +96,17 @@ describe("events/poll ACK mechanism", () => {
     const lastEventId = json1.cursor;
 
     // Second poll with ACK - should mark events as acknowledged
-    const poll2 = await fetch(
-      server.baseUrl + `/events/poll?ack=${lastEventId}`,
-      {
-        headers: {
-          "X-Device-Id": "dev-ack",
-          "X-Device-Token": data.deviceToken,
-        },
-      }
-    );
+    const poll2 = await server.request(`/events/poll?ack=${lastEventId}`, {
+      headers: {
+        "X-Device-Id": "dev-ack",
+        "X-Device-Token": data.deviceToken,
+      },
+    });
     const json2: any = await poll2.json();
     expect(json2.ok).toBe(true);
 
     // Third poll without since - acked events should not reappear
-    const poll3 = await fetch(server.baseUrl + "/events/poll", {
+    const poll3 = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-ack",
         "X-Device-Token": data.deviceToken,
@@ -132,7 +129,7 @@ describe("events/poll ACK mechanism", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -147,7 +144,7 @@ describe("events/poll ACK mechanism", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Poll and get cursor
-    const poll1 = await fetch(server.baseUrl + "/events/poll", {
+    const poll1 = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-cursor",
         "X-Device-Token": data.deviceToken,
@@ -161,15 +158,12 @@ describe("events/poll ACK mechanism", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Poll with since=cursor - should only get new events
-    const poll2 = await fetch(
-      server.baseUrl + `/events/poll?since=${cursor}`,
-      {
-        headers: {
-          "X-Device-Id": "dev-cursor",
-          "X-Device-Token": data.deviceToken,
-        },
-      }
-    );
+    const poll2 = await server.request(`/events/poll?since=${cursor}`, {
+      headers: {
+        "X-Device-Id": "dev-cursor",
+        "X-Device-Token": data.deviceToken,
+      },
+    });
     const json2: any = await poll2.json();
     expect(json2.ok).toBe(true);
     // New events should have id > cursor

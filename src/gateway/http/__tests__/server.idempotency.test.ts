@@ -11,7 +11,7 @@ describe("idempotency", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-idem" }),
@@ -25,7 +25,7 @@ describe("idempotency", () => {
     });
 
     // First request
-    const res1 = await fetch(server.baseUrl + "/command/tool", {
+    const res1 = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -38,7 +38,7 @@ describe("idempotency", () => {
     const json1: any = await res1.json();
 
     // Second request with same key
-    const res2 = await fetch(server.baseUrl + "/command/tool", {
+    const res2 = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -64,7 +64,7 @@ describe("idempotency", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-idem2" }),
@@ -78,7 +78,7 @@ describe("idempotency", () => {
     });
 
     // First request
-    await fetch(server.baseUrl + "/command/tool", {
+    await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -90,7 +90,7 @@ describe("idempotency", () => {
     });
 
     // Second request with different key - should execute again
-    const res2 = await fetch(server.baseUrl + "/command/tool", {
+    const res2 = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",

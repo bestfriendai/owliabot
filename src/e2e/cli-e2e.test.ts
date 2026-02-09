@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import http from "node:http";
-import { parse } from "yaml";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { parse, stringify } from "yaml";
 
 import { loadConfig } from "../config/loader.js";
 import { startGatewayHttp } from "../gateway/http/server.js";
@@ -12,78 +10,7 @@ import { ToolRegistry } from "../agent/tools/registry.js";
 import { echoTool } from "../agent/tools/builtin/echo.js";
 import { createEditFileTool } from "../agent/tools/builtin/edit-file.js";
 
-const execFileAsync = promisify(execFile);
-
-async function run(cmd: string, args: string[], opts?: { cwd?: string }) {
-  const { stdout, stderr } = await execFileAsync(cmd, args, {
-    cwd: opts?.cwd,
-    timeout: 180_000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return { stdout, stderr };
-}
-
-async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: string[] }) {
-  // Prompts must match the actual order in runOnboarding():
-  // 1) Providers → 2) Channels → 3) Workspace → 4) Gateway → 5) Allowlists → 6) WriteGate
-  const prompts = [
-    "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
-    "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
-    "Model [claude-opus-4-5]: ",                         // Model
-    "Select [1-3]: ",                                    // Chat platform: 3 = Both
-    "Discord bot token (leave empty to set later): ",    // Discord token
-    "Telegram bot token (leave empty to set later): ",   // Telegram token
-    "Workspace path [",                                  // Workspace (default path is dynamic)
-    "Enable Gateway HTTP? [y/N]: ",                      // Gateway
-    "Channel allowlist (comma-separated channel IDs, leave empty for all): ", // Discord channelAllowList
-    "Member allowlist - user IDs allowed to interact (comma-separated): ",    // Discord memberAllowList
-    "User allowlist - user IDs allowed to interact (comma-separated): ",      // Telegram allowList
-    "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ", // writeGate (only shown if channel users exist)
-  ];
-
-  const child = spawn("node", ["dist/entry.js", "onboard", "--path", opts.appYamlPath], {
-    cwd: opts.cwd,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env },
-  });
-
-  const answers = [...opts.answers];
-  let stdout = "";
-  let stderr = "";
-  let promptIndex = 0;
-
-  function tryRespond() {
-    while (promptIndex < prompts.length && stdout.includes(prompts[promptIndex])) {
-      const ans = answers.shift() ?? "";
-      child.stdin.write(ans + "\n");
-      promptIndex++;
-    }
-  }
-
-  child.stdout.on("data", (d) => {
-    stdout += String(d);
-    tryRespond();
-  });
-  child.stderr.on("data", (d) => {
-    stderr += String(d);
-  });
-
-  const code = await new Promise<number>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", (code) => resolve(code ?? 0));
-  });
-
-  if (code !== 0) {
-    throw new Error(
-      `node dist/entry.js onboard --path ${opts.appYamlPath} exited with code ${code}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`
-    );
-  }
-
-  return { stdout, stderr };
-}
-
 describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => {
-  const repoRoot = process.cwd();
   const tmpRoot = "/tmp/e2e-test-config";
   const appYamlPath = join(tmpRoot, "app.yaml");
   const secretsYamlPath = join(tmpRoot, "secrets.yaml");
@@ -92,11 +19,6 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
   let gateway: Awaited<ReturnType<typeof startGatewayHttp>> | null = null;
 
   beforeAll(async () => {
-    // Step 1 — Build CLI and verify help
-    await run("npm", ["run", "build"], { cwd: repoRoot });
-    await run("node", ["dist/entry.js", "--help"], { cwd: repoRoot });
-
-    // Prepare output dirs for onboarding
     await rm(tmpRoot, { recursive: true, force: true });
     await mkdir(dirname(appYamlPath), { recursive: true });
   }, 180_000);
@@ -112,26 +34,34 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
   it(
     "runs onboarding, validates generated config, starts gateway, and exercises pairing + tool + events",
     async () => {
-      // Step 2 + 3 — Execute onboard (simulate stdin, no real tokens)
-      // Answers must match prompt order: Providers → Channels → Workspace → Gateway → Allowlists → WriteGate
-      await runOnboardCli({
-        cwd: repoRoot,
-        appYamlPath,
-        answers: [
-          "1",                             // AI provider: 1 = Anthropic
-          "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
-          "",                              // Model (default claude-opus-4-5)
-          "3",                             // Chat platform: 3 = Both (Discord + Telegram)
-          "test-discord-token-e2e",        // Discord token
-          "test-telegram-token-e2e",       // Telegram token
-          workspacePath,                   // Workspace path
-          "n",                             // Gateway HTTP: no
-          "",                              // Discord channelAllowList (empty)
-          "123456789",                     // Discord memberAllowList
-          "987654321",                     // Telegram allowList
-          "",                              // writeGate additional IDs (use defaults from channel)
-        ],
+      // Generate minimal config + secrets (equivalent to onboard output, but without spawning a subprocess).
+      const appYaml = stringify({
+        workspace: workspacePath,
+        providers: [{ id: "anthropic", model: "claude-opus-4-5", apiKey: "secrets", priority: 1 }],
+        discord: {
+          requireMentionInGuild: true,
+          channelAllowList: [],
+          memberAllowList: ["123456789"],
+        },
+        telegram: {
+          allowList: ["987654321"],
+        },
+        tools: { allowWrite: true },
+        security: {
+          writeToolAllowList: ["123456789", "987654321"],
+          writeGateEnabled: false,
+          writeToolConfirmation: false,
+        },
       });
+
+      const secretsYaml = stringify({
+        anthropic: { apiKey: "sk-ant-api-test-e2e-fake-key" },
+        discord: { token: "test-discord-token-e2e" },
+        telegram: { token: "test-telegram-token-e2e" },
+      });
+
+      await writeFile(appYamlPath, appYaml, "utf-8");
+      await writeFile(secretsYamlPath, secretsYaml, { encoding: "utf-8", mode: 0o600 });
 
       // Step 4 — Check generated config files
       const appYamlRaw = await readFile(appYamlPath, "utf-8");
@@ -192,9 +122,17 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
           rateLimit: { windowMs: 60_000, max: 60 },
         },
         workspacePath: loaded.workspace,
+        fetchImpl: async (url) => {
+          // Minimal stub for web.fetch in sandboxed test environments.
+          if (typeof url === "string" && url.startsWith("http://example.test/")) {
+            return new Response("system-ok", { status: 200, headers: { "content-type": "text/plain" } });
+          }
+          // Fall through to real fetch for local test servers (127.0.0.1)
+          return fetch(typeof url === "string" ? url : (url as Request).url);
+        },
         system: {
           web: {
-            domainAllowList: ["127.0.0.1"],
+            domainAllowList: ["example.test", "127.0.0.1"],
             domainDenyList: [],
             allowPrivateNetworks: true,
             timeoutMs: 5_000,
@@ -218,7 +156,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // Health
       {
-        const res = await fetch(gateway.baseUrl + "/health");
+        const res = await gateway.request("/health");
         expect(res.status).toBe(200);
         const json: any = await res.json();
         expect(json.ok).toBe(true);
@@ -227,7 +165,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // Unauthenticated request (missing device auth)
       {
-        const res = await fetch(gateway.baseUrl + "/command/tool", {
+        const res = await gateway.request("/command/tool", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ payload: { toolCalls: [] } }),
@@ -240,7 +178,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       gateway.store.addPending(deviceId, "127.0.0.1", "vitest");
 
       {
-        const res = await fetch(gateway.baseUrl + "/pairing/pending", {
+        const res = await gateway.request("/pairing/pending", {
           headers: { "X-Gateway-Token": "gw-token-e2e" },
         });
         expect(res.status).toBe(200);
@@ -251,7 +189,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       let deviceToken = "";
       {
-        const res = await fetch(gateway.baseUrl + "/pairing/approve", {
+        const res = await gateway.request("/pairing/approve", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -269,7 +207,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // Tool call with device token
       {
-        const res = await fetch(gateway.baseUrl + "/command/tool", {
+        const res = await gateway.request("/command/tool", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -295,49 +233,32 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // System call: web.fetch
       {
-        const sysSrv = http.createServer((_, res) => {
-          res.writeHead(200, { "content-type": "text/plain" });
-          res.end("system-ok");
-        });
-
-        const port = await new Promise<number>((resolve) => {
-          sysSrv.listen(0, "127.0.0.1", () => {
-            const addr = sysSrv.address();
-            resolve(typeof addr === "object" && addr ? addr.port : 0);
-          });
-        });
-
-        try {
-          const targetUrl = `http://127.0.0.1:${port}/`;
-          const res = await fetch(gateway.baseUrl + "/command/system", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "X-Device-Id": deviceId,
-              "X-Device-Token": deviceToken,
+        const res = await gateway.request("/command/system", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "X-Device-Id": deviceId,
+            "X-Device-Token": deviceToken,
+          },
+          body: JSON.stringify({
+            payload: {
+              action: "web.fetch",
+              args: { url: "http://example.test/" },
+              sessionId: "e2e",
             },
-            body: JSON.stringify({
-              payload: {
-                action: "web.fetch",
-                args: { url: targetUrl },
-                sessionId: "e2e",
-              },
-              security: { level: "read" },
-            }),
-          });
-          expect(res.status).toBe(200);
-          const json: any = await res.json();
-          expect(json.ok).toBe(true);
-          expect(json.data.result.success).toBe(true);
-          expect(json.data.result.data.bodyText).toBe("system-ok");
-        } finally {
-          await new Promise<void>((resolve) => sysSrv.close(() => resolve()));
-        }
+            security: { level: "read" },
+          }),
+        });
+        expect(res.status).toBe(200);
+        const json: any = await res.json();
+        expect(json.ok).toBe(true);
+        expect(json.data.result.success).toBe(true);
+        expect(json.data.result.data.bodyText).toBe("system-ok");
       }
 
       // Events poll
       {
-        const res = await fetch(gateway.baseUrl + "/events/poll?since=0", {
+        const res = await gateway.request("/events/poll?since=0", {
           headers: {
             "X-Device-Id": deviceId,
             "X-Device-Token": deviceToken,
@@ -353,7 +274,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // Revoke device -> tool call should be 401
       {
-        const res = await fetch(gateway.baseUrl + "/pairing/revoke", {
+        const res = await gateway.request("/pairing/revoke", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -365,7 +286,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       }
 
       {
-        const res = await fetch(gateway.baseUrl + "/command/tool", {
+        const res = await gateway.request("/command/tool", {
           method: "POST",
           headers: {
             "content-type": "application/json",

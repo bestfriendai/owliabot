@@ -17,7 +17,7 @@ export { createEditFileTool, type EditFileToolOptions } from "./edit-file.js";
 export { createCronTool, type CronToolDeps } from "./cron.js";
 
 // File system tools (group:fs)
-export { createReadFileTool } from "./read-file.js";
+export { createReadFileTool, type ReadFileToolOptions } from "./read-file.js";
 export { createWriteFileTool } from "./write-file.js";
 export { createApplyPatchTool } from "./apply-patch.js";
 

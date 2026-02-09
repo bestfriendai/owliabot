@@ -91,8 +91,21 @@ export interface AppConfig {
 
   telegram?: {
     /** Telegram bot token is expected via env (TELEGRAM_BOT_TOKEN) */
+    /** Optional allowlist for direct messages */
     allowList?: string[];
-    groupAllowList?: string[];
+    /**
+     * Per-group overrides (by Telegram chat id), plus optional "*" default.
+     * Example: telegram.groups["-100123"].requireMention = false
+     */
+    groups?: Record<
+      string,
+      {
+        enabled?: boolean;
+        requireMention?: boolean;
+        allowFrom?: string[];
+        historyLimit?: number;
+      }
+    >;
   };
 
   // Providers

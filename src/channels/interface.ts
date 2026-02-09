@@ -18,6 +18,18 @@ export interface ChannelPlugin {
   // Send message
   send(target: string, message: OutboundMessage): Promise<void>;
 
+  // Optional reaction support (used for group ack UX).
+  addReaction?: (
+    chatId: string,
+    messageId: string,
+    emoji: string,
+  ) => Promise<void>;
+  removeReaction?: (
+    chatId: string,
+    messageId: string,
+    emoji: string,
+  ) => Promise<void>;
+
   // Capabilities
   capabilities: ChannelCapabilities;
 }
@@ -29,6 +41,9 @@ export interface MsgContext {
   from: string;
   senderName: string;
   senderUsername?: string;
+  replyToBody?: string;
+  replyToSender?: string;
+  threadId?: string;
 
   /**
    * Whether the bot was explicitly mentioned / invoked in this message.

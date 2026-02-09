@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { realpath } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import fs from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, isAbsolute } from "node:path";
 import { execArgsSchema, type ExecArgs, type SystemCapabilityConfig } from "../interface.js";
 import { checkCommandWhitelist } from "../security/command-whitelist.js";
@@ -63,24 +65,44 @@ export async function execAction(
 
   const started = Date.now();
 
+  const tmp = await mkdtemp(resolve(tmpdir(), "owliabot-exec-"));
+  const stdoutPath = resolve(tmp, "stdout.txt");
+  const stderrPath = resolve(tmp, "stderr.txt");
+
+  const stdoutFd = fs.openSync(stdoutPath, "w");
+  const stderrFd = fs.openSync(stderrPath, "w");
+
+  const readFileLimited = (path: string, maxBytes: number): string => {
+    try {
+      const fd = fs.openSync(path, "r");
+      try {
+        const buf = Buffer.allocUnsafe(maxBytes);
+        const n = fs.readSync(fd, buf, 0, maxBytes, 0);
+        return buf.subarray(0, n).toString("utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return "";
+    }
+  };
+
   return await new Promise<ExecActionResult>((resolvePromise) => {
     const child = spawn(parsed.command, parsed.params ?? [], {
       cwd,
       env,
       shell: false,
       windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      // Capture output to files rather than pipes:
+      // This is more reliable in constrained environments and keeps memory bounded.
+      stdio: ["ignore", stdoutFd, stderrFd],
     });
 
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let total = 0;
     let truncated = false;
     let timedOut = false;
 
-    const killForLimit = () => {
+    const safeKill = () => {
       if (child.killed) return;
-      truncated = true;
       try {
         child.kill("SIGKILL");
       } catch {
@@ -88,36 +110,46 @@ export async function execAction(
       }
     };
 
-    const onData = (which: "stdout" | "stderr", chunk: Buffer) => {
-      total += chunk.length;
-      if (total > maxOutputBytes) {
-        killForLimit();
-        return;
-      }
-      if (which === "stdout") stdoutChunks.push(chunk);
-      else stderrChunks.push(chunk);
-    };
-
-    child.stdout?.on("data", (d) => onData("stdout", Buffer.from(d)));
-    child.stderr?.on("data", (d) => onData("stderr", Buffer.from(d)));
-
-    const t = setTimeout(() => {
+    const tTimeout = setTimeout(() => {
       timedOut = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // ignore
-      }
+      safeKill();
     }, timeoutMs);
 
-    const finish = (exitCode: number | null, signal: NodeJS.Signals | null) => {
-      clearTimeout(t);
+    const tSize = setInterval(() => {
+      try {
+        const outSize = fs.statSync(stdoutPath).size;
+        const errSize = fs.statSync(stderrPath).size;
+        if (outSize + errSize > maxOutputBytes) {
+          truncated = true;
+          safeKill();
+        }
+      } catch {
+        // ignore
+      }
+    }, 25);
+
+    const finish = async (exitCode: number | null, signal: NodeJS.Signals | null, errMsg?: string) => {
+      clearTimeout(tTimeout);
+      clearInterval(tSize);
+      try { fs.closeSync(stdoutFd); } catch {}
+      try { fs.closeSync(stderrFd); } catch {}
+
       const durationMs = Date.now() - started;
+      const stdout = errMsg ? "" : readFileLimited(stdoutPath, maxOutputBytes);
+      const stderr = errMsg ? errMsg : readFileLimited(stderrPath, maxOutputBytes);
+
+      // Best-effort cleanup
+      try {
+        await rm(tmp, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+
       resolvePromise({
         exitCode,
         signal,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        stdout,
+        stderr,
         truncated,
         timedOut,
         durationMs,
@@ -125,19 +157,11 @@ export async function execAction(
     };
 
     child.on("error", (err) => {
-      clearTimeout(t);
-      const durationMs = Date.now() - started;
-      resolvePromise({
-        exitCode: null,
-        signal: null,
-        stdout: "",
-        stderr: String(err?.message ?? err),
-        truncated,
-        timedOut,
-        durationMs,
-      });
+      void finish(null, null, String(err?.message ?? err));
     });
 
-    child.on("close", (code, signal) => finish(code, signal));
+    child.on("close", (code, signal) => {
+      void finish(code, signal);
+    });
   });
 }

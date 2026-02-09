@@ -9,7 +9,7 @@ describe("health", () => {
       config: testConfig,
       ...resources,
     });
-    const res = await fetch(server.baseUrl + "/health");
+    const res = await server.request("/health");
     const json: any = await res.json();
     expect(json.ok).toBe(true);
     expect(json.version).toBe("0.2.0");

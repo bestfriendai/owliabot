@@ -7,18 +7,21 @@ import { tmpdir } from "node:os";
 describe("list-files tool", () => {
   let workspacePath: string;
   let outsidePath: string;
+  let owliabotHomePath: string;
   let listFilesTool: ReturnType<typeof createListFilesTool>;
 
   beforeEach(() => {
     // Create temp directories
     workspacePath = mkdtempSync(join(tmpdir(), "list-files-test-workspace-"));
     outsidePath = mkdtempSync(join(tmpdir(), "list-files-test-outside-"));
-    listFilesTool = createListFilesTool({ workspace: workspacePath });
+    owliabotHomePath = mkdtempSync(join(tmpdir(), "list-files-test-owliabot-home-"));
+    listFilesTool = createListFilesTool({ workspace: workspacePath, owliabotHome: owliabotHomePath });
   });
 
   afterEach(() => {
     rmSync(workspacePath, { recursive: true, force: true });
     rmSync(outsidePath, { recursive: true, force: true });
+    rmSync(owliabotHomePath, { recursive: true, force: true });
   });
 
   describe("basic operations", () => {
@@ -212,6 +215,28 @@ describe("list-files tool", () => {
       expect(listFilesTool.name).toBe("list_files");
       expect(listFilesTool.description).toContain("List files");
       expect(listFilesTool.security.level).toBe("read");
+    });
+  });
+
+  describe("OWLIABOT_HOME root", () => {
+    it("should list files in owliabot_home when requested", async () => {
+      writeFileSync(join(owliabotHomePath, "app.yaml"), "telegram: {}", "utf-8");
+      writeFileSync(join(owliabotHomePath, "secrets.yaml"), "token: SECRET", "utf-8");
+
+      const result = await listFilesTool.execute({ root: "owliabot_home" }, {} as any);
+
+      expect(result.success).toBe(true);
+      const entries = (result.data as any).entries;
+      const names = entries.map((e: any) => e.name);
+      expect(names).toContain("app.yaml");
+      // Known-sensitive entries are skipped from OWLIABOT_HOME listings
+      expect(names).not.toContain("secrets.yaml");
+    });
+
+    it("should reject traversal outside owliabot_home", async () => {
+      const result = await listFilesTool.execute({ root: "owliabot_home", path: "../etc" }, {} as any);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Invalid path");
     });
   });
 });

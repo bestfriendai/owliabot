@@ -11,6 +11,22 @@ import type {
 
 const log = createLogger("telegram");
 
+// Telegram reactions are chat-configurable and can be restricted. Keep a small
+// set of common reactions as fallbacks to avoid repeated REACTION_INVALID errors.
+const REACTION_FALLBACKS = ["👍", "❤", "🔥", "🎉", "🤔", "😁"] as const;
+
+function isTelegramReactionInvalid(err: unknown): boolean {
+  const e = err as any;
+  const desc = typeof e?.description === "string" ? e.description : "";
+  return e?.error_code === 400 && /REACTION_INVALID/i.test(desc);
+}
+
+function isTelegramReactionsNotAllowed(err: unknown): boolean {
+  const e = err as any;
+  const desc = typeof e?.description === "string" ? e.description : "";
+  return e?.error_code === 400 && /REACTIONS_NOT_ALLOWED/i.test(desc);
+}
+
 /**
  * Convert markdown to Telegram HTML
  * Telegram supports: <b>, <i>, <code>, <pre>, <a>, <u>, <s>
@@ -62,6 +78,7 @@ function markdownToTelegramHtml(text: string): string {
 
 export interface TelegramConfig {
   token: string;
+  /** Optional allowlist for direct messages. Group messages should be gated via telegram.groups.* */
   allowList?: string[];
 }
 
@@ -73,6 +90,7 @@ function normalizeBotUsername(username?: string | null): string | null {
 export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
   const bot = new Bot<Context & AutoChatActionFlavor>(config.token);
   let messageHandler: MessageHandler | null = null;
+  const reactionDisabledChats = new Set<string>();
 
   // Filled on start()
   let botUsername: string | null = null;
@@ -80,7 +98,7 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
   const capabilities: ChannelCapabilities = {
     reactions: true,
-    threads: false,
+    threads: true,
     buttons: true,
     markdown: true,
     maxMessageLength: 4096,
@@ -108,8 +126,8 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
         const chatType = ctx.chat.type === "private" ? "direct" : "group";
 
-        // Check allowlist (applies to both DM + group)
-        if (config.allowList && config.allowList.length > 0) {
+        // Check allowlist (direct messages only)
+        if (chatType === "direct" && config.allowList && config.allowList.length > 0) {
           const userId = ctx.from?.id.toString();
           if (!userId || !config.allowList.includes(userId)) {
             log.warn(`User ${userId} not in allowlist`);
@@ -166,6 +184,15 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
           from: ctx.from?.id.toString() ?? "",
           senderName: ctx.from?.first_name ?? "Unknown",
           senderUsername: ctx.from?.username,
+          threadId: (ctx.message as any).message_thread_id
+            ? String((ctx.message as any).message_thread_id)
+            : undefined,
+          replyToBody:
+            (ctx.message.reply_to_message as any)?.text ??
+            (ctx.message.reply_to_message as any)?.caption,
+          replyToSender:
+            ctx.message.reply_to_message?.from?.first_name ??
+            ctx.message.reply_to_message?.from?.username,
           mentioned,
           body: body.length > 0 ? body : rawText,
           messageId: ctx.message.message_id.toString(),
@@ -225,6 +252,76 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
             ? parseInt(message.replyToId, 10)
             : undefined,
         });
+      }
+    },
+
+    async addReaction(chatId: string, messageId: string, emoji: string) {
+      if (reactionDisabledChats.has(chatId)) return;
+      try {
+        await bot.api.setMessageReaction(
+          parseInt(chatId, 10),
+          parseInt(messageId, 10),
+          [{ type: "emoji", emoji }] as any,
+        );
+      } catch (err) {
+        if (isTelegramReactionsNotAllowed(err)) {
+          reactionDisabledChats.add(chatId);
+          log.debug("Reactions not allowed in chat; disabling reaction attempts", {
+            chatId,
+          });
+          return;
+        }
+
+        if (isTelegramReactionInvalid(err)) {
+          for (const fallback of REACTION_FALLBACKS) {
+            if (fallback === emoji) continue;
+            try {
+              await bot.api.setMessageReaction(
+                parseInt(chatId, 10),
+                parseInt(messageId, 10),
+                [{ type: "emoji", emoji: fallback }] as any,
+              );
+              log.debug("Reaction emoji invalid; used fallback", {
+                chatId,
+                messageId,
+                requested: emoji,
+                fallback,
+              });
+              return;
+            } catch (err2) {
+              if (isTelegramReactionsNotAllowed(err2)) {
+                reactionDisabledChats.add(chatId);
+                return;
+              }
+              if (isTelegramReactionInvalid(err2)) continue;
+              log.warn("Failed to add reaction (fallback)", err2);
+              return;
+            }
+          }
+
+          // None accepted: treat as reactions effectively unavailable for this chat.
+          reactionDisabledChats.add(chatId);
+          log.debug("No valid reactions accepted; disabling reaction attempts", {
+            chatId,
+            messageId,
+          });
+          return;
+        }
+
+        // Reaction UX is best-effort; only warn on unexpected errors.
+        log.warn("Failed to add reaction", err);
+      }
+    },
+
+    async removeReaction(chatId: string, messageId: string, _emoji: string) {
+      try {
+        await bot.api.setMessageReaction(
+          parseInt(chatId, 10),
+          parseInt(messageId, 10),
+          [] as any,
+        );
+      } catch (err) {
+        log.warn("Failed to remove reaction", err);
       }
     },
   };

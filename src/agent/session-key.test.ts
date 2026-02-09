@@ -94,6 +94,24 @@ describe("resolveSessionKey", () => {
     expect(key).toBe("agent:main:telegram:conv:g555");
   });
 
+  it("telegram forum topic appends :topic:<threadId>", () => {
+    const ctx: MsgContext = {
+      from: "u1",
+      senderName: "u1",
+      body: "hi",
+      messageId: "m1",
+      channel: "telegram",
+      chatType: "group",
+      groupId: "g555",
+      groupName: "tg-group",
+      threadId: "99",
+      timestamp: Date.now(),
+    };
+
+    const key = resolveSessionKey({ ctx, config: makeConfig() });
+    expect(key).toBe("agent:main:telegram:conv:g555:topic:99");
+  });
+
   it("agentId override affects the key", () => {
     const ctx: MsgContext = {
       from: "u1",

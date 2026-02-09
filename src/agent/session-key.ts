@@ -36,7 +36,11 @@ export function resolveConversationId(options: {
 
   // Group/channel contexts should be isolated.
   // Discord: ctx.groupId == channelId. Telegram: ctx.groupId == groupId.
-  return ctx.groupId ?? ctx.from;
+  const base = ctx.groupId ?? ctx.from;
+  if (ctx.threadId && ctx.threadId.trim().length > 0) {
+    return `${base}:topic:${ctx.threadId.trim()}`;
+  }
+  return base;
 }
 
 export function resolveSessionKey(options: {

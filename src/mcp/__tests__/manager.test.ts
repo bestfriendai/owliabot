@@ -18,12 +18,12 @@ import { MCPManager, createMCPManager } from "../manager.js";
 import type { MCPServerConfig } from "../types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MOCK_SERVER_PATH = join(__dirname, "mock-mcp-server.mjs");
+const MOCK_SERVER_PATH = join(__dirname, "mock-mcp-server.py");
 
 // Test server configuration
 const mockServerConfig: MCPServerConfig = {
   name: "mock",
-  command: "node",
+  command: "python3",
   args: [MOCK_SERVER_PATH],
   transport: "stdio",
 };

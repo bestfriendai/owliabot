@@ -41,8 +41,20 @@ telegram:
   token: ${TELEGRAM_BOT_TOKEN}
   # allowList:
   #   - "883499266"
-  # groupAllowList: # Telegram group IDs where bot can respond without mention triggers
-  #   - "-1001234567890"
+  #
+  # groups: # Per-group overrides by Telegram chat id, plus optional "*" default
+  #   "*":
+  #     enabled: true
+  #     requireMention: true
+  #     historyLimit: 50
+  #   "-1001234567890":
+  #     # In this group, respond even without @mention
+  #     requireMention: false
+  #     # If set, only these senders can trigger the bot (and be included in group history)
+  #     allowFrom:
+  #       - "883499266"
+  #       - "@alice"
+  #     historyLimit: 200
 
 # Discord (optional)
 discord:
@@ -54,6 +66,14 @@ discord:
   #   - "1467915124764573736"  # #🦉｜oliwabot-core
 
   # requireMentionInGuild: true  # default true: allowlist bypass works ONLY when set to false
+
+# Group chat behavior (optional)
+# group:
+#   activation: mention   # mention | always
+#   historyLimit: 50      # rolling group message buffer used as context at mention time
+#   maxConcurrent: 3      # max concurrent group requests per session key
+#   # mentionPatterns:    # custom mention trigger patterns (regex strings, case-insensitive)
+#   #   - "\\bowliabot\\b"
 
 # Notifications - where to send proactive messages
 notifications:

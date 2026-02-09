@@ -34,8 +34,10 @@ async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: st
 }
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
-import { shouldHandleMessage } from "./activation.js";
+import { passesUserAllowlist, shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
+import { GroupHistoryBuffer } from "./group-history.js";
+import { GroupRateLimiter } from "./group-rate-limit.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -133,6 +135,24 @@ export async function startGateway(
   options: GatewayOptions,
 ): Promise<() => Promise<void>> {
   const { config, workspace, sessionsDir } = options;
+
+  // Use the max historyLimit across all configured groups so per-group overrides
+  // can be satisfied when slicing injected context.
+  const maxGroupHistoryLimit = (() => {
+    let max = config.group?.historyLimit ?? 50;
+    const groups = config.telegram?.groups;
+    if (groups) {
+      for (const g of Object.values(groups)) {
+        if (g && typeof g.historyLimit === "number") {
+          max = Math.max(max, g.historyLimit);
+        }
+      }
+    }
+    return max;
+  })();
+
+  const groupHistory = new GroupHistoryBuffer(maxGroupHistoryLimit);
+  const groupRateLimiter = new GroupRateLimiter(config.group?.maxConcurrent ?? 3);
 
   const channels = new ChannelRegistry();
 
@@ -267,6 +287,8 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        groupHistory,
+        groupRateLimiter,
         infraStore,
       );
     });
@@ -302,6 +324,8 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        groupHistory,
+        groupRateLimiter,
         infraStore,
       );
     });
@@ -457,14 +481,88 @@ async function handleMessage(
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
   skillsResult: SkillsInitResult | null,
+  groupHistory: GroupHistoryBuffer,
+  groupRateLimiter: GroupRateLimiter,
   infraStore: InfraStore | null,
 ): Promise<void> {
+  const agentId = resolveAgentId({ config });
+  const sessionKey = resolveSessionKey({ ctx, config });
+
+  const resolvePerGroupHistoryLimit = (): number => {
+    const fallback = config.group?.historyLimit ?? 50;
+    if (ctx.channel !== "telegram" || !ctx.groupId) return fallback;
+    const groups = config.telegram?.groups;
+    if (!groups) return fallback;
+    const merged = { ...(groups["*"] ?? {}), ...(groups[ctx.groupId] ?? {}) };
+    return typeof merged.historyLimit === "number" ? merged.historyLimit : fallback;
+  };
+
+  const passesPerGroupAllowFrom = (): boolean => {
+    if (ctx.channel !== "telegram" || !ctx.groupId) return true;
+    const groups = config.telegram?.groups;
+    if (!groups) return true;
+    const merged = { ...(groups["*"] ?? {}), ...(groups[ctx.groupId] ?? {}) };
+    const allowFrom: unknown = (merged as any).allowFrom;
+    if (!Array.isArray(allowFrom) || allowFrom.length === 0) return true;
+
+    const senderId = ctx.from;
+    const senderUsername = ctx.senderUsername?.trim().toLowerCase();
+    for (const raw of allowFrom) {
+      const v = String(raw ?? "").trim();
+      if (!v) continue;
+      if (v === senderId) return true;
+      if (v.startsWith("@")) {
+        const u = v.slice(1).trim().toLowerCase();
+        if (u && senderUsername && u === senderUsername) return true;
+      }
+    }
+    return false;
+  };
+
+  // Mention-only groups: record non-activated group messages for later context.
+  // Only record if the user passes the allowlist gate (avoid leaking non-allowlisted users).
   if (!shouldHandleMessage(ctx, config)) {
+    if (
+      ctx.chatType === "group" &&
+      passesUserAllowlist(ctx, config) &&
+      passesPerGroupAllowFrom() &&
+      resolvePerGroupHistoryLimit() > 0
+    ) {
+      groupHistory.record(sessionKey, {
+        sender: ctx.senderName,
+        body: ctx.body,
+        timestamp: ctx.timestamp,
+        messageId: ctx.messageId,
+      });
+    }
     return;
   }
 
-  const agentId = resolveAgentId({ config });
-  const sessionKey = resolveSessionKey({ ctx, config });
+  // Group mention ack UX + per-session concurrency limiting.
+  const isGroupMention = ctx.chatType === "group" && !!ctx.mentioned;
+  const channelForReactions = channels.get(ctx.channel);
+  const reactionChatId = ctx.groupId ?? ctx.from;
+
+  let releaseGroupSlot: (() => void) | null = null;
+  if (isGroupMention) {
+    releaseGroupSlot = groupRateLimiter.tryAcquire(sessionKey);
+    if (!releaseGroupSlot) {
+      if (channelForReactions) {
+        await channelForReactions.send(reactionChatId, {
+          text: "I'm busy, please wait...",
+          replyToId: ctx.messageId,
+        });
+      }
+      return;
+    }
+
+    if (channelForReactions?.addReaction) {
+      // Telegram reaction sets are chat-configurable; use a common default.
+      await channelForReactions.addReaction(reactionChatId, ctx.messageId, "🤔");
+    }
+  }
+
+  try {
   const now = Date.now();
   const infraConfig = config.infra;
 
@@ -568,7 +666,53 @@ async function handleMessage(
   });
   if (cmd.handled) return;
 
-  log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
+  // Build effective body for the LLM (keep ctx.body intact for command parsing).
+  let effectiveBody = ctx.body;
+
+  if (ctx.chatType === "group") {
+    // Reply-to context for group mentions.
+    if (ctx.replyToBody && ctx.replyToBody.trim().length > 0) {
+      const replySender = (ctx.replyToSender ?? "Unknown").trim() || "Unknown";
+      effectiveBody =
+        `[Replying to ${replySender}]\n` +
+        `${ctx.replyToBody.trim()}\n` +
+        `[/Replying]\n\n` +
+        effectiveBody;
+    }
+
+	    // Sender label injection so the LLM can attribute authors.
+	    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
+	    const sender =
+	      ctx.senderUsername && ctx.senderUsername.trim().length > 0
+	        ? `${ctx.senderName} (@${ctx.senderUsername})`
+	        : ctx.senderName;
+	    const groupLabel =
+	      ctx.channel === "telegram"
+	        ? "Telegram group"
+	        : ctx.channel === "discord"
+	          ? "Discord guild"
+	          : "Group";
+	    effectiveBody = `[${groupLabel} "${groupTitle}" | ${sender}]\n${effectiveBody}`;
+
+    // Inject recent context only when the bot is explicitly invoked.
+    if (ctx.mentioned) {
+      const perGroupLimit = resolvePerGroupHistoryLimit();
+      const recentAll = groupHistory.getHistory(sessionKey);
+      const recent =
+        perGroupLimit > 0 ? recentAll.slice(-perGroupLimit) : [];
+      if (recent.length > 0) {
+        const lines = recent.map((e) => `${e.sender}: ${e.body}`);
+        effectiveBody =
+          `[Recent group messages (context)]\n` +
+          `${lines.join("\n")}\n` +
+          `[End context]\n` +
+          effectiveBody;
+        groupHistory.clear(sessionKey);
+      }
+    }
+  }
+
+  log.info(`Message from ${sessionKey}: ${effectiveBody.slice(0, 50)}...`);
 
   const entry = await sessionStore.getOrCreate(sessionKey, {
     channel: ctx.channel,
@@ -580,7 +724,7 @@ async function handleMessage(
   // Append user message to transcript
   const userMessage: Message = {
     role: "user",
-    content: ctx.body,
+    content: effectiveBody,
     timestamp: ctx.timestamp,
   };
   await transcripts.append(entry.sessionId, userMessage);
@@ -747,6 +891,15 @@ async function handleMessage(
     });
   }
 
+  if (isGroupMention && channelForReactions) {
+    if (channelForReactions.removeReaction) {
+      await channelForReactions.removeReaction(reactionChatId, ctx.messageId, "👀");
+    }
+    if (channelForReactions.addReaction) {
+      await channelForReactions.addReaction(reactionChatId, ctx.messageId, "🎉");
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Infrastructure: Event Store (log message processing result)
   // ─────────────────────────────────────────────────────────────────────────
@@ -770,5 +923,8 @@ async function handleMessage(
       }),
       expiresAt: endTime + eventTtlMs,
     });
+  }
+  } finally {
+    if (releaseGroupSlot) releaseGroupSlot();
   }
 }
