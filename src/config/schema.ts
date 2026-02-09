@@ -282,7 +282,7 @@ const clawletConfigSchema = z
       .optional(),
   })
   .default({
-    enabled: true,
+    enabled: false,
     baseUrl: "http://127.0.0.1:9100",
     requestTimeout: 30_000,
     defaultChainId: 8453,
