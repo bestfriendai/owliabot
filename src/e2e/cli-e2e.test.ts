@@ -127,11 +127,12 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
           if (typeof url === "string" && url.startsWith("http://example.test/")) {
             return new Response("system-ok", { status: 200, headers: { "content-type": "text/plain" } });
           }
-          return new Response("not-found", { status: 404 });
+          // Fall through to real fetch for local test servers (127.0.0.1)
+          return fetch(typeof url === "string" ? url : (url as Request).url);
         },
         system: {
           web: {
-            domainAllowList: ["example.test"],
+            domainAllowList: ["example.test", "127.0.0.1"],
             domainDenyList: [],
             allowPrivateNetworks: true,
             timeoutMs: 5_000,
