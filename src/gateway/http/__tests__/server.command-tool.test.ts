@@ -37,7 +37,7 @@ describe("command tool", () => {
         "Idempotency-Key": "abc",
       },
       body: JSON.stringify({
-        payload: { toolCalls: [{ id: "1", name: "echo", arguments: { text: "hi" } }] },
+        payload: { toolCalls: [{ id: "1", name: "echo", arguments: { message: "hi" } }] },
       }),
     });
 
