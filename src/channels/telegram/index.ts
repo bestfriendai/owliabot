@@ -1,4 +1,5 @@
-import { Bot } from "grammy";
+import { Bot, type Context } from "grammy";
+import { autoChatAction, type AutoChatActionFlavor } from "@grammyjs/auto-chat-action";
 import { createLogger } from "../../utils/logger.js";
 import type {
   ChannelPlugin,
@@ -70,7 +71,7 @@ function normalizeBotUsername(username?: string | null): string | null {
 }
 
 export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
-  const bot = new Bot(config.token);
+  const bot = new Bot<Context & AutoChatActionFlavor>(config.token);
   let messageHandler: MessageHandler | null = null;
 
   // Filled on start()
@@ -101,6 +102,9 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
       } catch (err) {
         log.warn("Failed to fetch Telegram bot identity (getMe)", err);
       }
+
+      // Auto-send "typing..." while processing messages
+      bot.use(autoChatAction());
 
       bot.on("message:text", async (ctx) => {
         if (!messageHandler) return;
