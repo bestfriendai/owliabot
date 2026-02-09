@@ -367,6 +367,7 @@ export async function handleMessage(
       sessionId: entry.sessionId,
       userId: ctx.from,
       channelId: ctx.channel,
+      chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
       workspacePath: config.workspace,
       memorySearchConfig: config.memorySearch,
       securityConfig: config.security,

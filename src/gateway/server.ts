@@ -329,9 +329,64 @@ export async function startGateway(
     log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   }
 
-  // Start all channels
-  await channels.startAll();
-  log.info("Gateway started");
+  // Create notification service
+  const notifications = createNotificationService({
+    defaultChannel: config.notifications?.channel,
+    channels,
+  });
+
+  // Create legacy cron service (for heartbeat scheduling)
+  const legacyCron = createCronService();
+
+  // Schedule heartbeat if enabled (using legacy cron for now)
+  if (config.heartbeat?.enabled) {
+    legacyCron.schedule({
+      id: "heartbeat",
+      pattern: config.heartbeat.cron,
+      handler: async () => {
+        await executeHeartbeat({ config, workspace, notifications });
+      },
+    });
+    log.info(`Heartbeat scheduled: ${config.heartbeat.cron}`);
+  }
+
+  // Cron tool must be registered before channels start to avoid races where
+  // messages arrive while the tool registry is still incomplete.
+  // (Otherwise LLM may request "cron" and the executor will treat it as unknown.)
+
+  // Create new CronService (OpenClaw-compatible) with integration
+  const cronIntegration = createCronIntegration({
+    config,
+    onSystemEvent: (text, opts) => {
+      log.debug(
+        { text: text.slice(0, 50), agentId: opts?.agentId },
+        "system event enqueued",
+      );
+      // Proactive delivery: prefer explicit target on the event (job payload),
+      // otherwise keep it queued for a future consumer.
+      const channelId = opts?.channel;
+      const to = opts?.to;
+      if (channelId && to) {
+        const ch = channels.get(channelId as any);
+        if (!ch) {
+          log.warn({ channelId }, "cron systemEvent: channel not found");
+        } else {
+          void ch.send(to, { text }).catch((err) => {
+            log.warn({ err: String(err), channelId, to }, "cron systemEvent: send failed");
+          });
+        }
+      } else {
+        log.debug("cron systemEvent queued (no explicit delivery target)");
+      }
+    },
+    onHeartbeatRequest: (reason) => {
+      log.debug({ reason }, "heartbeat requested");
+    },
+    // runHeartbeatOnce and runIsolatedAgentJob will be wired when session infra is ready
+  });
+
+  // Register cron tool
+  tools.register(createCronTool({ cronService: cronIntegration.cronService }));
 
   // Start Gateway HTTP if enabled
   // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
@@ -357,46 +412,11 @@ export async function startGateway(
     log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
   }
 
-  // Create notification service
-  const notifications = createNotificationService({
-    defaultChannel: config.notifications?.channel,
-    channels,
-  });
+  // Start all channels (after tools are fully registered)
+  await channels.startAll();
+  log.info("Gateway started");
 
-  // Create legacy cron service (for heartbeat scheduling)
-  const legacyCron = createCronService();
-
-  // Schedule heartbeat if enabled (using legacy cron for now)
-  if (config.heartbeat?.enabled) {
-    legacyCron.schedule({
-      id: "heartbeat",
-      pattern: config.heartbeat.cron,
-      handler: async () => {
-        await executeHeartbeat({ config, workspace, notifications });
-      },
-    });
-    log.info(`Heartbeat scheduled: ${config.heartbeat.cron}`);
-  }
-
-  // Create new CronService (OpenClaw-compatible) with integration
-  const cronIntegration = createCronIntegration({
-    config,
-    onSystemEvent: (text, opts) => {
-      log.debug(
-        { text: text.slice(0, 50), agentId: opts?.agentId },
-        "system event enqueued",
-      );
-    },
-    onHeartbeatRequest: (reason) => {
-      log.debug({ reason }, "heartbeat requested");
-    },
-    // runHeartbeatOnce and runIsolatedAgentJob will be wired when session infra is ready
-  });
-
-  // Register cron tool
-  tools.register(createCronTool({ cronService: cronIntegration.cronService }));
-
-  // Start cron service
+  // Start cron service after channels are live so proactive deliveries can be sent.
   await cronIntegration.start();
   log.info("Cron service started");
 
@@ -635,6 +655,8 @@ async function handleMessage(
           agentId,
           config: {
             memorySearch: config.memorySearch,
+            channel: ctx.channel,
+            target: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
           },
         },
         writeGateChannel: writeGateChannels.get(ctx.channel),

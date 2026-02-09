@@ -30,6 +30,8 @@ export interface AgenticLoopContext {
   userId: string;
   /** Channel ID (telegram, discord, etc.) */
   channelId: string;
+  /** Reply target for the current chat (DM userId or group/channel id) */
+  chatTargetId: string;
   /** Workspace path for file operations */
   workspacePath: string;
   /** Memory search configuration */
@@ -144,6 +146,8 @@ export async function runAgenticLoop(
           agentId: context.agentId,
           config: {
             memorySearch: context.memorySearchConfig,
+            channel: context.channelId,
+            target: context.chatTargetId,
           },
         },
         writeGateChannel: config.writeGateChannel,
