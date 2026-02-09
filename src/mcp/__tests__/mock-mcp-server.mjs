@@ -7,6 +7,7 @@
  */
 
 import * as readline from "node:readline";
+import { writeSync } from "node:fs";
 
 const SERVER_INFO = {
   name: "mock-mcp-server",
@@ -58,7 +59,9 @@ const TOOLS = [
 ];
 
 function send(message) {
-  process.stdout.write(JSON.stringify(message) + "\n");
+  // In some sandboxed CI environments, Node's stdout WriteStream may not flush
+  // when connected to pipes. Writing directly to fd=1 is reliable.
+  writeSync(1, JSON.stringify(message) + "\n");
 }
 
 function handleRequest(request) {

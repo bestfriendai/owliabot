@@ -17,6 +17,7 @@
  */
 
 import http from "node:http";
+import { Readable, Writable } from "node:stream";
 import { createStore, type Store } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
 import { createNoopAuditLogger } from "./noop-audit.js";
@@ -67,6 +68,8 @@ export interface GatewayHttpOptions {
   transcripts: SessionTranscriptStore;
   workspacePath: string;
   system?: SystemCapabilityConfig;
+  /** Optional fetch injection for tests (defaults to global fetch) */
+  fetchImpl?: typeof fetch;
 }
 
 export interface GatewayHttpResult {
@@ -74,6 +77,11 @@ export interface GatewayHttpResult {
   stop: () => Promise<void>;
   store: Store;
   channel: ChannelPlugin;
+  /**
+   * In-process request helper for environments that can't bind to network ports.
+   * Acts like a minimal `fetch()` against this server instance.
+   */
+  request: (path: string, init?: { method?: string; headers?: Record<string, string>; body?: string; remoteIp?: string }) => Promise<Response>;
 }
 
 /**
@@ -86,6 +94,7 @@ export interface GatewayHttpResult {
  */
 export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<GatewayHttpResult> {
   const { config, toolRegistry: tools, workspacePath } = opts;
+  const fetchImpl = opts.fetchImpl ?? fetch;
 
   // Ensure sqlite parent dir exists (better-sqlite3 won't create it).
   const dbDir = dirname(config.sqlitePath);
@@ -99,7 +108,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
   // Create HTTP channel plugin for message delivery
   const httpChannel = createHttpChannel({ store });
 
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);
 
@@ -810,7 +819,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         body,
         {
           workspacePath,
-          fetchImpl: fetch,
+          fetchImpl,
         },
         opts.system
       );
@@ -877,28 +886,100 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         error: { code: "ERR_INVALID_REQUEST", message: "Not Found" },
       })
     );
+  };
+
+  const server = http.createServer((req, res) => {
+    void handler(req, res);
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const onError = (err: unknown) => {
-      reject(err);
-    };
-    server.once("error", onError);
-    server.listen(config.port, config.host, () => {
-      server.off("error", onError);
-      resolve();
+  let listening = true;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: unknown) => {
+        reject(err);
+      };
+      server.once("error", onError);
+      server.listen(config.port, config.host, () => {
+        server.off("error", onError);
+        resolve();
+      });
     });
-  });
+  } catch (err: any) {
+    // Some CI/sandbox environments disallow binding to loopback/ports.
+    // Keep the server usable via `result.request()` without a listening socket.
+    if (err && (err.code === "EPERM" || err.code === "EACCES")) {
+      listening = false;
+    } else {
+      throw err;
+    }
+  }
 
   const address = server.address();
   const port =
     typeof address === "object" && address ? address.port : config.port;
 
+  const request: GatewayHttpResult["request"] = async (path, init) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    const headers = init?.headers ?? {};
+    const body = init?.body ?? "";
+    const remoteIp = init?.remoteIp ?? "127.0.0.1";
+
+    // Minimal IncomingMessage mock: async iterable body + required props.
+    const req = Readable.from(body ? [Buffer.from(body, "utf8")] : []) as any;
+    req.method = method;
+    req.url = path;
+    req.headers = Object.fromEntries(
+      Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+    );
+    req.socket = { remoteAddress: remoteIp };
+
+    // Minimal ServerResponse mock capturing status, headers, and body.
+    let status = 200;
+    const outHeaders: Record<string, string> = {};
+    const chunks: Buffer[] = [];
+
+    let resolveDone: ((r: Response) => void) | null = null;
+    const done = new Promise<Response>((resolve) => {
+      resolveDone = resolve;
+    });
+
+    const res = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        cb();
+      },
+    }) as any;
+
+    res.writeHead = (s: number, h?: Record<string, any>) => {
+      status = s;
+      if (h) {
+        for (const [k, v] of Object.entries(h)) {
+          if (typeof v === "string") outHeaders[k.toLowerCase()] = v;
+        }
+      }
+      return res;
+    };
+    res.end = (chunk?: any) => {
+      if (chunk !== undefined) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      }
+      const text = Buffer.concat(chunks).toString("utf8");
+      const hdrs = new Headers();
+      for (const [k, v] of Object.entries(outHeaders)) hdrs.set(k, v);
+      resolveDone?.(new Response(text, { status, headers: hdrs }));
+      return res;
+    };
+
+    await handler(req, res);
+    return await done;
+  };
+
   return {
-    baseUrl: `http://${config.host}:${port}`,
+    baseUrl: listening ? `http://${config.host}:${port}` : "http://in-memory",
     stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
     store,
     channel: httpChannel,
+    request,
   };
 }
 

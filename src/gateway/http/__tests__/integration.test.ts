@@ -11,7 +11,7 @@ describe("gateway integration", () => {
     });
 
     // Approve device with default scope (read only)
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev1" }),
@@ -19,7 +19,7 @@ describe("gateway integration", () => {
     const { data }: any = await approve.json();
 
     // Call a read-only tool (should work with default scope)
-    await fetch(server.baseUrl + "/command/tool", {
+    await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -35,7 +35,7 @@ describe("gateway integration", () => {
     });
 
     // Poll events (should see the tool execution event)
-    const events = await fetch(server.baseUrl + "/events/poll", {
+    const events = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev1",
         "X-Device-Token": data.deviceToken,
@@ -60,7 +60,7 @@ describe("gateway integration", () => {
     });
 
     // Step 1: Device requests pairing
-    const request = await fetch(server.baseUrl + "/pair/request", {
+    const request = await server.request("/pair/request", {
       method: "POST",
       headers: { "X-Device-Id": "dev-flow" },
     });
@@ -68,7 +68,7 @@ describe("gateway integration", () => {
     expect(reqJson.data.status).toBe("pending");
 
     // Step 2: Admin approves with write scope
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -80,7 +80,7 @@ describe("gateway integration", () => {
     expect(data.scope.tools).toBe("write");
 
     // Step 3: Device can now call write tools
-    const toolRes = await fetch(server.baseUrl + "/command/tool", {
+    const toolRes = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -104,7 +104,7 @@ describe("gateway integration", () => {
 
     // Step 5: Device polls for messages
     await new Promise((r) => setTimeout(r, 50));
-    const poll = await fetch(server.baseUrl + "/events/poll", {
+    const poll = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-flow",
         "X-Device-Token": data.deviceToken,

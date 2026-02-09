@@ -11,14 +11,14 @@ describe("command/tool", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-tool" }),
     });
     const { data }: any = await approve.json();
 
-    const res = await fetch(server.baseUrl + "/command/tool", {
+    const res = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -48,7 +48,7 @@ describe("command/tool", () => {
       ...resources,
     });
 
-    const res = await fetch(server.baseUrl + "/command/tool", {
+    const res = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -77,14 +77,14 @@ describe("command/tool", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-invalid" }),
     });
     const { data }: any = await approve.json();
 
-    const res = await fetch(server.baseUrl + "/command/tool", {
+    const res = await server.request("/command/tool", {
       method: "POST",
       headers: {
         "content-type": "application/json",

@@ -18,7 +18,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with read scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -29,7 +29,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Call a read-only tool
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -59,7 +59,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with read scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -70,7 +70,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try to call a write tool
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -102,7 +102,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with write scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -113,7 +113,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Call a write tool
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -145,7 +145,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with write scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -156,7 +156,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try to call a sign tool (tier2)
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -188,7 +188,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with sign scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -199,7 +199,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Call a sign tool
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -231,7 +231,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with full sign scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -242,7 +242,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try to call a tool that is NOT registered in ToolRegistry
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -281,7 +281,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with read-only scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -292,7 +292,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try to call the write tool
-      const res = await fetch(server.baseUrl + "/command/tool", {
+      const res = await server.request("/command/tool", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -324,7 +324,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device without system scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -335,7 +335,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try system command
-      const res = await fetch(server.baseUrl + "/command/system", {
+      const res = await server.request("/command/system", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -363,7 +363,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device without mcp scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -374,7 +374,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try MCP request
-      const res = await fetch(server.baseUrl + "/mcp", {
+      const res = await server.request("/mcp", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -400,7 +400,7 @@ describe("scope enforcement", () => {
       });
 
       // Approve device with mcp scope
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -411,7 +411,7 @@ describe("scope enforcement", () => {
       const { data }: any = await approve.json();
 
       // Try MCP request (should return 501 Not Implemented)
-      const res = await fetch(server.baseUrl + "/mcp", {
+      const res = await server.request("/mcp", {
         method: "POST",
         headers: {
           "content-type": "application/json",

@@ -34,7 +34,7 @@ async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: st
 }
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
-import { shouldHandleMessage } from "./activation.js";
+import { passesUserAllowlist, shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { GroupHistoryBuffer } from "./group-history.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
@@ -449,8 +449,9 @@ async function handleMessage(
   const sessionKey = resolveSessionKey({ ctx, config });
 
   // Mention-only groups: record non-activated group messages for later context.
+  // Only record if the user passes the allowlist gate (avoid leaking non-allowlisted users).
   if (!shouldHandleMessage(ctx, config)) {
-    if (ctx.chatType === "group") {
+    if (ctx.chatType === "group" && passesUserAllowlist(ctx, config)) {
       groupHistory.record(sessionKey, {
         sender: ctx.senderName,
         body: ctx.body,

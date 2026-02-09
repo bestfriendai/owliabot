@@ -9,7 +9,7 @@ describe("pairing", () => {
       config: testConfig,
       ...resources,
     });
-    const res = await fetch(server.baseUrl + "/pairing/request", {
+    const res = await server.request("/pairing/request", {
       method: "POST",
       headers: { "X-Device-Id": "dev-req" },
     });
@@ -25,7 +25,7 @@ describe("pairing", () => {
       config: testConfig,
       ...resources,
     });
-    const res = await fetch(server.baseUrl + "/pair/request", {
+    const res = await server.request("/pair/request", {
       method: "POST",
       headers: { "X-Device-Id": "dev-req-new" },
     });
@@ -41,7 +41,7 @@ describe("pairing", () => {
       config: testConfig,
       ...resources,
     });
-    const res = await fetch(server.baseUrl + "/admin/approve", {
+    const res = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -63,7 +63,7 @@ describe("pairing", () => {
       config: testConfig,
       ...resources,
     });
-    const res = await fetch(server.baseUrl + "/admin/approve", {
+    const res = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-default" }),
@@ -84,19 +84,19 @@ describe("pairing", () => {
     });
 
     // create one pending
-    await fetch(server.baseUrl + "/pair/request", {
+    await server.request("/pair/request", {
       method: "POST",
       headers: { "X-Device-Id": "dev-pending" },
     });
 
     // approve one device
-    await fetch(server.baseUrl + "/admin/approve", {
+    await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-ok" }),
     });
 
-    const res = await fetch(server.baseUrl + "/status", {
+    const res = await server.request("/status", {
       headers: { "X-Gateway-Token": "gw" },
     });
     const json: any = await res.json();
@@ -122,27 +122,27 @@ describe("pairing", () => {
     });
 
     // Unknown device
-    const unknown = await fetch(server.baseUrl + "/pair/status", {
+    const unknown = await server.request("/pair/status", {
       headers: { "X-Device-Id": "dev-unknown" },
     });
     const unknownJson: any = await unknown.json();
     expect(unknownJson.data.status).toBe("unknown");
 
     // Request pairing
-    await fetch(server.baseUrl + "/pair/request", {
+    await server.request("/pair/request", {
       method: "POST",
       headers: { "X-Device-Id": "dev-check" },
     });
 
     // Pending status
-    const pending = await fetch(server.baseUrl + "/pair/status", {
+    const pending = await server.request("/pair/status", {
       headers: { "X-Device-Id": "dev-check" },
     });
     const pendingJson: any = await pending.json();
     expect(pendingJson.data.status).toBe("pending");
 
     // Approve
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({ deviceId: "dev-check" }),
@@ -150,7 +150,7 @@ describe("pairing", () => {
     const { data }: any = await approve.json();
 
     // Paired status (with token)
-    const paired = await fetch(server.baseUrl + "/pair/status", {
+    const paired = await server.request("/pair/status", {
       headers: {
         "X-Device-Id": "dev-check",
         "X-Device-Token": data.deviceToken,

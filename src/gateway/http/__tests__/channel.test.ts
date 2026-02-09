@@ -59,7 +59,7 @@ describe("HTTP Channel Plugin", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -76,7 +76,7 @@ describe("HTTP Channel Plugin", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Poll events
-    const res = await fetch(server.baseUrl + "/events/poll", {
+    const res = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-channel",
         "X-Device-Token": data.deviceToken,
@@ -105,7 +105,7 @@ describe("HTTP Channel Plugin", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -124,7 +124,7 @@ describe("HTTP Channel Plugin", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Poll events
-    const res = await fetch(server.baseUrl + "/events/poll", {
+    const res = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-reply",
         "X-Device-Token": data.deviceToken,
@@ -152,7 +152,7 @@ describe("HTTP Channel Plugin", () => {
     });
 
     // Approve device
-    const approve = await fetch(server.baseUrl + "/admin/approve", {
+    const approve = await server.request("/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
       body: JSON.stringify({
@@ -174,7 +174,7 @@ describe("HTTP Channel Plugin", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Poll events
-    const res = await fetch(server.baseUrl + "/events/poll", {
+    const res = await server.request("/events/poll", {
       headers: {
         "X-Device-Id": "dev-buttons",
         "X-Device-Token": data.deviceToken,

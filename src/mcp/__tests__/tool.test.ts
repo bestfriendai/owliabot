@@ -19,7 +19,7 @@ import type { ToolDefinition, ToolContext, ToolResult } from "../../agent/tools/
 import type { MCPServerConfig } from "../types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MOCK_SERVER_PATH = join(__dirname, "mock-mcp-server.mjs");
+const MOCK_SERVER_PATH = join(__dirname, "mock-mcp-server.py");
 
 // Test context
 const mockContext: ToolContext = {
@@ -84,7 +84,7 @@ describe.sequential("mcp_manage tool", () => {
     it("returns server info when servers connected", async () => {
       await manager.addServer({
         name: "mock",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
         transport: "stdio",
       });
@@ -110,7 +110,7 @@ describe.sequential("mcp_manage tool", () => {
         {
           action: "add",
           name: "mock",
-          command: "node",
+          command: "python3",
           args: [MOCK_SERVER_PATH],
         },
         mockContext
@@ -142,7 +142,7 @@ describe.sequential("mcp_manage tool", () => {
     it("fails when server already exists", async () => {
       await manager.addServer({
         name: "mock",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
         transport: "stdio",
       });
@@ -151,7 +151,7 @@ describe.sequential("mcp_manage tool", () => {
         {
           action: "add",
           name: "mock",
-          command: "node",
+          command: "python3",
           args: [MOCK_SERVER_PATH],
         },
         mockContext
@@ -180,7 +180,7 @@ describe.sequential("mcp_manage tool", () => {
     it("removes a server successfully", async () => {
       await manager.addServer({
         name: "mock",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
         transport: "stdio",
       });
@@ -213,7 +213,7 @@ describe.sequential("mcp_manage tool", () => {
     it("refreshes a server successfully", async () => {
       await manager.addServer({
         name: "mock",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
         transport: "stdio",
       });
@@ -258,7 +258,7 @@ describe.sequential("mcp_manage tool", () => {
 
     it("fails with missing name for add", async () => {
       const result = await tool.execute(
-        { action: "add", command: "node" },
+        { action: "add", command: "python3" },
         mockContext
       );
 
@@ -294,7 +294,7 @@ describe("mcp_manage E2E workflow", () => {
       {
         action: "add",
         name: "mock",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
       },
       mockContext
@@ -333,7 +333,7 @@ describe("mcp_manage E2E workflow", () => {
       {
         action: "add",
         name: "server1",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
       },
       mockContext
@@ -343,7 +343,7 @@ describe("mcp_manage E2E workflow", () => {
       {
         action: "add",
         name: "server2",
-        command: "node",
+        command: "python3",
         args: [MOCK_SERVER_PATH],
       },
       mockContext

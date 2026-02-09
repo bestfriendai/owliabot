@@ -18,7 +18,7 @@ describe("admin routes", () => {
       });
 
       // Approve a device
-      await fetch(server.baseUrl + "/admin/approve", {
+      await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -28,7 +28,7 @@ describe("admin routes", () => {
       });
 
       // List devices
-      const res = await fetch(server.baseUrl + "/admin/devices", {
+      const res = await server.request("/admin/devices", {
         headers: { "X-Gateway-Token": "gw" },
       });
 
@@ -53,7 +53,7 @@ describe("admin routes", () => {
         ...resources,
       });
 
-      const res = await fetch(server.baseUrl + "/admin/devices");
+      const res = await server.request("/admin/devices");
       expect(res.status).toBe(401);
 
       await server.stop();
@@ -69,14 +69,14 @@ describe("admin routes", () => {
       });
 
       // Approve device with default scope
-      await fetch(server.baseUrl + "/admin/approve", {
+      await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-scope-update" }),
       });
 
       // Update scope
-      const res = await fetch(server.baseUrl + "/admin/scope", {
+      const res = await server.request("/admin/scope", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -93,7 +93,7 @@ describe("admin routes", () => {
       expect(json.data.scope.mcp).toBe(true);
 
       // Verify by listing
-      const list = await fetch(server.baseUrl + "/admin/devices", {
+      const list = await server.request("/admin/devices", {
         headers: { "X-Gateway-Token": "gw" },
       });
       const listJson: any = await list.json();
@@ -112,7 +112,7 @@ describe("admin routes", () => {
         ...resources,
       });
 
-      const res = await fetch(server.baseUrl + "/admin/scope", {
+      const res = await server.request("/admin/scope", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -136,14 +136,14 @@ describe("admin routes", () => {
       });
 
       // Approve device
-      await fetch(server.baseUrl + "/admin/approve", {
+      await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-invalid-scope" }),
       });
 
       // Try invalid scope
-      const res = await fetch(server.baseUrl + "/admin/scope", {
+      const res = await server.request("/admin/scope", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({
@@ -167,7 +167,7 @@ describe("admin routes", () => {
       });
 
       // Approve device
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-rotate" }),
@@ -176,7 +176,7 @@ describe("admin routes", () => {
       const oldToken = approveData.deviceToken;
 
       // Rotate token
-      const res = await fetch(server.baseUrl + "/admin/rotate-token", {
+      const res = await server.request("/admin/rotate-token", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-rotate" }),
@@ -189,7 +189,7 @@ describe("admin routes", () => {
       expect(json.data.deviceToken).not.toBe(oldToken);
 
       // Old token should no longer work
-      const oldTokenRes = await fetch(server.baseUrl + "/events/poll", {
+      const oldTokenRes = await server.request("/events/poll", {
         headers: {
           "X-Device-Id": "dev-rotate",
           "X-Device-Token": oldToken,
@@ -198,7 +198,7 @@ describe("admin routes", () => {
       expect(oldTokenRes.status).toBe(401);
 
       // New token should work
-      const newTokenRes = await fetch(server.baseUrl + "/events/poll", {
+      const newTokenRes = await server.request("/events/poll", {
         headers: {
           "X-Device-Id": "dev-rotate",
           "X-Device-Token": json.data.deviceToken,
@@ -216,7 +216,7 @@ describe("admin routes", () => {
         ...resources,
       });
 
-      const res = await fetch(server.baseUrl + "/admin/rotate-token", {
+      const res = await server.request("/admin/rotate-token", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-nonexistent" }),
@@ -239,20 +239,20 @@ describe("admin routes", () => {
       });
 
       // Request pairing
-      await fetch(server.baseUrl + "/pair/request", {
+      await server.request("/pair/request", {
         method: "POST",
         headers: { "X-Device-Id": "dev-reject" },
       });
 
       // Verify pending
-      const pending1 = await fetch(server.baseUrl + "/admin/pending", {
+      const pending1 = await server.request("/admin/pending", {
         headers: { "X-Gateway-Token": "gw" },
       });
       const pending1Json: any = await pending1.json();
       expect(pending1Json.data.pending.some((p: any) => p.deviceId === "dev-reject")).toBe(true);
 
       // Reject
-      const res = await fetch(server.baseUrl + "/admin/reject", {
+      const res = await server.request("/admin/reject", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-reject" }),
@@ -260,7 +260,7 @@ describe("admin routes", () => {
       expect(res.status).toBe(200);
 
       // Verify removed
-      const pending2 = await fetch(server.baseUrl + "/admin/pending", {
+      const pending2 = await server.request("/admin/pending", {
         headers: { "X-Gateway-Token": "gw" },
       });
       const pending2Json: any = await pending2.json();
@@ -279,7 +279,7 @@ describe("admin routes", () => {
       });
 
       // Approve device
-      const approve = await fetch(server.baseUrl + "/admin/approve", {
+      const approve = await server.request("/admin/approve", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-revoke" }),
@@ -287,7 +287,7 @@ describe("admin routes", () => {
       const { data }: any = await approve.json();
 
       // Token should work before revoke
-      const before = await fetch(server.baseUrl + "/events/poll", {
+      const before = await server.request("/events/poll", {
         headers: {
           "X-Device-Id": "dev-revoke",
           "X-Device-Token": data.deviceToken,
@@ -296,14 +296,14 @@ describe("admin routes", () => {
       expect(before.status).toBe(200);
 
       // Revoke
-      await fetch(server.baseUrl + "/admin/revoke", {
+      await server.request("/admin/revoke", {
         method: "POST",
         headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
         body: JSON.stringify({ deviceId: "dev-revoke" }),
       });
 
       // Token should not work after revoke
-      const after = await fetch(server.baseUrl + "/events/poll", {
+      const after = await server.request("/events/poll", {
         headers: {
           "X-Device-Id": "dev-revoke",
           "X-Device-Token": data.deviceToken,
