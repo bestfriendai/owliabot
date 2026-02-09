@@ -17,7 +17,6 @@ import {
   type SupportedOAuthProvider,
 } from "./auth/oauth.js";
 import { runOnboarding } from "./onboarding/onboard.js";
-import { runDockerOnboarding } from "./onboarding/onboard-docker.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 import type { Config } from "./config/schema.js";
 
@@ -146,14 +145,12 @@ program
   .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
   .action(async (options) => {
     try {
-      if (options.docker) {
-        await runDockerOnboarding({
-          configDir: options.configDir,
-          outputDir: options.outputDir,
-        });
-      } else {
-        await runOnboarding({ appConfigPath: options.path });
-      }
+      await runOnboarding({
+        docker: options.docker,
+        appConfigPath: options.path,
+        configDir: options.configDir,
+        outputDir: options.outputDir,
+      });
     } catch (err) {
       log.error("Onboarding failed", err);
       process.exit(1);
