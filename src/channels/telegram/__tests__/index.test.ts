@@ -229,7 +229,7 @@ describe("telegram plugin", () => {
     expect(bot.api.setMessageReaction).toHaveBeenCalledTimes(1);
   });
 
-  it("does not show typing for unmentioned group messages", async () => {
+  it("does not show typing unless the handler requests it", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
     const handler = vi.fn(async () => undefined);
     plugin.onMessage(handler);
@@ -257,9 +257,12 @@ describe("telegram plugin", () => {
     expect(setCalls.length).toBe(0);
   });
 
-  it("shows typing for group commands (treated as mention)", async () => {
+  it("lets the handler control typing via MsgContext.setTyping()", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
-    const handler = vi.fn(async () => undefined);
+    const handler = vi.fn(async (msgCtx: any) => {
+      msgCtx.setTyping?.(true);
+      msgCtx.setTyping?.(false);
+    });
     plugin.onMessage(handler);
 
     await plugin.start();
@@ -282,5 +285,6 @@ describe("telegram plugin", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(setCalls).toContain("typing");
+    expect(setCalls).toContain(null);
   });
 });

@@ -68,6 +68,14 @@ export interface MsgContext {
 
   // Metadata
   timestamp: number;
+
+  /**
+   * Optional channel-specific UX hook.
+   * Telegram: toggles "typing…" indicator via chat actions.
+   *
+   * Gateways should only call this when they are actually going to respond.
+   */
+  setTyping?: (isTyping: boolean) => void;
 }
 
 export interface OutboundMessage {

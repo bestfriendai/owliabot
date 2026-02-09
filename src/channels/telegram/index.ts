@@ -208,22 +208,15 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
           groupId: chatType === "group" ? ctx.chat.id.toString() : undefined,
           groupName: chatType === "group" ? ("title" in ctx.chat ? (ctx.chat as any).title : undefined) : undefined,
           timestamp: ctx.message.date * 1000,
+          // Let the gateway decide when we're actually going to respond.
+          // autoChatAction will emit indicators while this is set during processing.
+          setTyping: (isTyping: boolean) => {
+            ctx.chatAction = isTyping ? "typing" : (null as any);
+          },
         };
 
         try {
-          // Only show typing for DMs or explicit group invocations (mentions / replies / commands).
-          // For group chatter we won't respond to, avoid noisy typing indicators.
-          const shouldShowTyping = chatType === "direct" || mentioned;
-
-          if (shouldShowTyping) {
-            // NOTE: autoChatAction only sends indicators when ctx.chatAction is set.
-            ctx.chatAction = "typing";
-          }
-          try {
-            await messageHandler!(msgCtx);
-          } finally {
-            if (shouldShowTyping) ctx.chatAction = null as any;
-          }
+          await messageHandler!(msgCtx);
         } catch (err) {
           log.error("Error handling message", err);
         }

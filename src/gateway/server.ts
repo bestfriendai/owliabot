@@ -562,6 +562,7 @@ async function handleMessage(
     }
   }
 
+  let typingOn = false;
   try {
   const now = Date.now();
   const infraConfig = config.infra;
@@ -582,6 +583,12 @@ async function handleMessage(
     // Save idempotency record (will be updated with response later)
     const ttlMs = infraConfig?.idempotency?.ttlMs ?? 5 * 60 * 1000;
     infraStore.saveIdempotency(idempotencyKey, messageHash, { processing: true }, now + ttlMs);
+  }
+
+  // Only show typing once we've decided we'll process this message (and it's not a duplicate).
+  if (ctx.setTyping) {
+    ctx.setTyping(true);
+    typingOn = true;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -925,6 +932,7 @@ async function handleMessage(
     });
   }
   } finally {
+    if (typingOn) ctx.setTyping?.(false);
     if (releaseGroupSlot) releaseGroupSlot();
   }
 }
