@@ -49,12 +49,11 @@ describe("shouldHandleMessage", () => {
     expect(shouldHandleMessage(ctx, config)).toBe(true);
   });
 
-  it("allows telegram group when groupAllowList matches", () => {
+  it("blocks telegram group when not mentioned and no per-group override", () => {
     const config = makeConfig({
       telegram: {
         token: "x",
         allowList: ["u1"],
-        groupAllowList: ["g1"],
       },
     });
 
@@ -66,7 +65,7 @@ describe("shouldHandleMessage", () => {
       mentioned: false,
     };
 
-    expect(shouldHandleMessage(ctx, config)).toBe(true);
+    expect(shouldHandleMessage(ctx, config)).toBe(false);
   });
 
   it("allows DMs after allowList pass", () => {
@@ -78,6 +77,22 @@ describe("shouldHandleMessage", () => {
       channel: "telegram",
       chatType: "direct",
       from: "u1",
+      mentioned: true,
+    };
+
+    expect(shouldHandleMessage(ctx, config)).toBe(true);
+  });
+
+  it("does not apply telegram.allowList to group messages", () => {
+    const config = makeConfig({
+      telegram: { token: "x", allowList: ["u1"] },
+    });
+
+    const ctx: any = {
+      channel: "telegram",
+      chatType: "group",
+      from: "u2",
+      groupId: "g1",
       mentioned: true,
     };
 
@@ -245,9 +260,14 @@ describe("shouldHandleMessage", () => {
     expect(shouldHandleMessage(ctx, config)).toBe(false);
   });
 
-  it("blocks telegram group when not in groupAllowList and not mentioned", () => {
+  it("allows telegram group when per-group requireMention=false", () => {
     const config = makeConfig({
-      telegram: { token: "x" },
+      telegram: {
+        token: "x",
+        groups: {
+          "g-random": { requireMention: false },
+        },
+      },
     });
 
     const ctx: any = {
@@ -258,6 +278,6 @@ describe("shouldHandleMessage", () => {
       mentioned: false,
     };
 
-    expect(shouldHandleMessage(ctx, config)).toBe(false);
+    expect(shouldHandleMessage(ctx, config)).toBe(true);
   });
 });

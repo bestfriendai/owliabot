@@ -5,9 +5,17 @@
 
 import { constants } from "node:fs";
 import { lstat, open, realpath, stat } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 import { createLogger } from "../../../utils/logger.js";
+import {
+  type FsRoot,
+  type FsRoots,
+  isSensitiveOwliabotHomePath,
+  normaliseFsRoot,
+  rootPathFor,
+  validateRelativePath,
+} from "./fs-roots.js";
 
 const log = createLogger("read-file");
 
@@ -60,43 +68,42 @@ function isBinaryContent(buffer: Buffer): boolean {
  * Validate and resolve path within workspace bounds
  * Returns null if path is invalid or escapes workspace
  */
-async function resolveWorkspacePath(
-  workspacePath: string,
+async function resolveRootPath(
+  rootPath: string,
   relativePath: string,
 ): Promise<{ absPath: string; relPath: string } | null> {
   // Basic validation
-  if (!relativePath || typeof relativePath !== "string") return null;
-  if (relativePath.includes("\0")) return null;
-  if (relativePath.startsWith("/")) return null;
+  const v = validateRelativePath(relativePath);
+  if (!v.ok) return null;
 
   // Resolve paths
-  const absWorkspace = resolve(workspacePath);
-  const absPath = resolve(workspacePath, relativePath);
-  const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
+  const absRoot = resolve(rootPath);
+  const absPath = resolve(rootPath, relativePath);
+  const rel = relative(absRoot, absPath).replace(/\\/g, "/");
 
-  // Check if resolved path is within workspace (lexically)
+  // Check if resolved path is within root (lexically)
   if (!rel || rel.startsWith("..") || rel.startsWith("/")) {
     return null;
   }
 
-  // Verify parent directory resolves within workspace (symlink protection)
+  // Verify parent directory resolves within root (symlink protection)
   try {
-    const realWorkspace = await realpath(absWorkspace);
+    const realRoot = await realpath(absRoot);
     const parentPath = resolve(absPath, "..");
     
     // Parent might not exist for new files, walk up to find existing ancestor
     let checkPath = parentPath;
-    while (checkPath !== absWorkspace) {
+    while (checkPath !== absRoot) {
       try {
         const realParent = await realpath(checkPath);
-        const parentRel = relative(realWorkspace, realParent).replace(/\\/g, "/");
+        const parentRel = relative(realRoot, realParent).replace(/\\/g, "/");
         if (parentRel.startsWith("..") || parentRel.startsWith("/")) {
           return null;
         }
         break;
       } catch {
         checkPath = resolve(checkPath, "..");
-        if (checkPath === absWorkspace) break;
+        if (checkPath === absRoot) break;
       }
     }
   } catch {
@@ -113,10 +120,10 @@ async function resolveWorkspacePath(
       return null;
     }
 
-    // Verify realpath is within workspace
-    const realWorkspace = await realpath(absWorkspace);
+    // Verify realpath is within root
+    const realRoot = await realpath(absRoot);
     const realFile = await realpath(absPath);
-    const realRel = relative(realWorkspace, realFile).replace(/\\/g, "/");
+    const realRel = relative(realRoot, realFile).replace(/\\/g, "/");
     if (!realRel || realRel.startsWith("..") || realRel.startsWith("/")) {
       return null;
     }
@@ -132,7 +139,15 @@ async function resolveWorkspacePath(
   }
 }
 
-export function createReadFileTool(workspacePath: string): ToolDefinition {
+export interface ReadFileToolOptions {
+  /** Workspace directory path */
+  workspace: string;
+  /** Optional OwliaBot home directory path */
+  owliabotHome?: string;
+}
+
+export function createReadFileTool(opts: ReadFileToolOptions): ToolDefinition {
+  const roots: FsRoots = { workspace: opts.workspace, owliabotHome: opts.owliabotHome };
   return {
     // Avoid collision with Claude Code builtin "Read" when using setup-token.
     name: "read_text_file",
@@ -143,9 +158,15 @@ export function createReadFileTool(workspacePath: string): ToolDefinition {
     parameters: {
       type: "object",
       properties: {
+        root: {
+          type: "string",
+          description:
+            "Root to read from: 'workspace' (default) or 'owliabot_home'.",
+          enum: ["workspace", "owliabot_home"],
+        },
         path: {
           type: "string",
-          description: "File path relative to workspace (e.g., 'src/index.ts' or 'README.md')",
+          description: "File path relative to selected root (e.g., 'src/index.ts' or 'app.yaml')",
         },
         offset: {
           type: "number",
@@ -162,18 +183,35 @@ export function createReadFileTool(workspacePath: string): ToolDefinition {
       level: "read",
     },
     async execute(params) {
-      const { path: relativePath, offset, limit } = params as {
+      const { root, path: relativePath, offset, limit } = params as {
+        root?: FsRoot;
         path: string;
         offset?: number;
         limit?: number;
       };
 
+      const selectedRoot = normaliseFsRoot(root);
+      const rootPath = rootPathFor(roots, selectedRoot);
+      if (!rootPath) {
+        return {
+          success: false,
+          error: `Invalid root: ${selectedRoot} is not configured`,
+        };
+      }
+
+      if (selectedRoot === "owliabot_home" && isSensitiveOwliabotHomePath(relativePath)) {
+        return {
+          success: false,
+          error: `Access denied: sensitive file (${basename(relativePath)})`,
+        };
+      }
+
       // Resolve and validate path
-      const resolved = await resolveWorkspacePath(workspacePath, relativePath);
+      const resolved = await resolveRootPath(rootPath, relativePath);
       if (!resolved) {
         return {
           success: false,
-          error: "Invalid path: must be a relative path within the workspace",
+          error: "Invalid path: must be a relative path within the selected root",
         };
       }
 
@@ -253,6 +291,7 @@ export function createReadFileTool(workspacePath: string): ToolDefinition {
         return {
           success: true,
           data: {
+            root: selectedRoot,
             path: resolved.relPath,
             content: selectedLines.join("\n"),
             fromLine: startLine,

@@ -16,10 +16,10 @@ function makeBaseConfig(overrides: any = {}) {
 }
 
 describe("activation (telegram group policies)", () => {
-  it("falls back to telegram.groupAllowList for mention-only activation", () => {
+  it("requires mention by default when group.activation=mention and no per-group config", () => {
     const config = makeBaseConfig({
       group: { activation: "mention" },
-      telegram: { token: "t", groupAllowList: ["-1001"] },
+      telegram: { token: "t" },
     });
 
     const ctx: MsgContext = {
@@ -34,7 +34,7 @@ describe("activation (telegram group policies)", () => {
       mentioned: false,
     };
 
-    expect(shouldHandleMessage(ctx, config)).toBe(true);
+    expect(shouldHandleMessage(ctx, config)).toBe(false);
   });
 
   it("telegram.groups requireMention=false allows responding without mention", () => {
@@ -158,4 +158,3 @@ describe("activation (telegram group policies)", () => {
     expect(ctx.mentioned).toBe(true);
   });
 });
-

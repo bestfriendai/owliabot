@@ -13,6 +13,7 @@ vi.mock("grammy", () => {
     });
     api = {
       sendMessage: vi.fn(),
+      setMessageReaction: vi.fn(),
     };
 
     constructor() {
@@ -112,6 +113,25 @@ describe("telegram plugin", () => {
     );
   });
 
+  it("does not apply allow list to group messages", async () => {
+    const plugin = createTelegramPlugin({
+      token: "test-token",
+      allowList: ["999"], // does not include 123
+    });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+    const ctx = makeCtx({ chat: { type: "group", id: -100999, title: "Test Group" } });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it("extracts reply-to context into MsgContext", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
     const handler = vi.fn();
@@ -168,5 +188,39 @@ describe("telegram plugin", () => {
       "**Bold** message",
       { reply_to_message_id: 99 }
     );
+  });
+
+  it("falls back to common reactions when emoji is invalid", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+
+    bot.api.setMessageReaction
+      .mockRejectedValueOnce({ error_code: 400, description: "Bad Request: REACTION_INVALID" })
+      .mockResolvedValueOnce(undefined);
+
+    await plugin.addReaction?.("123", "42", "✅");
+
+    expect(bot.api.setMessageReaction).toHaveBeenCalledTimes(2);
+    // First attempt uses the requested emoji.
+    expect(bot.api.setMessageReaction.mock.calls[0][2][0].emoji).toBe("✅");
+    // Second attempt uses a fallback (exact value may change, but should be an emoji string).
+    expect(typeof bot.api.setMessageReaction.mock.calls[1][2][0].emoji).toBe("string");
+    expect(bot.api.setMessageReaction.mock.calls[1][2][0].emoji).not.toBe("✅");
+  });
+
+  it("stops attempting reactions when reactions are not allowed in a chat", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+
+    bot.api.setMessageReaction
+      .mockRejectedValueOnce({ error_code: 400, description: "Bad Request: REACTIONS_NOT_ALLOWED" });
+
+    await plugin.addReaction?.("123", "42", "🤔");
+    await plugin.addReaction?.("123", "43", "🤔");
+
+    // Second call should be skipped due to caching.
+    expect(bot.api.setMessageReaction).toHaveBeenCalledTimes(1);
   });
 });

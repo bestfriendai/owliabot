@@ -33,10 +33,8 @@ export const providerSchema = z
 export const telegramConfigSchema = z.object({
   // token can be set via onboarding + secrets.yaml (or env) later
   token: z.string().optional(),
-  /** Allow list of Telegram user IDs */
+  /** Allow list of Telegram user IDs (direct messages only) */
   allowList: z.array(z.string()).optional(),
-  /** Allow list of Telegram group IDs where the bot will respond even in mention-only mode */
-  groupAllowList: z.array(z.string()).optional(),
   /**
    * Per-group overrides (by Telegram chat id), plus optional "*" default.
    * Example:

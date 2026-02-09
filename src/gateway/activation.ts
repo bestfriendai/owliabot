@@ -14,7 +14,9 @@ export function passesUserAllowlist(ctx: MsgContext, config: Config): boolean {
     ctx.channel === "discord"
       ? config.discord?.memberAllowList
       : ctx.channel === "telegram"
-        ? config.telegram?.allowList
+        ? ctx.chatType === "direct"
+          ? config.telegram?.allowList
+          : undefined
         : undefined;
   return !allowList || allowList.length === 0 || allowList.includes(ctx.from);
 }
@@ -125,12 +127,10 @@ export function shouldHandleMessage(ctx: MsgContext, config: Config): boolean {
     if (activation === "always") return true;
   }
 
-  const allowlistedGroup =
+  const allowlistedDiscordChannel =
     !!ctx.groupId &&
-    ((ctx.channel === "discord" &&
-      !!config.discord?.channelAllowList?.includes(ctx.groupId)) ||
-      (ctx.channel === "telegram" &&
-        !!config.telegram?.groupAllowList?.includes(ctx.groupId)));
+    ctx.channel === "discord" &&
+    !!config.discord?.channelAllowList?.includes(ctx.groupId);
 
-  return !!ctx.mentioned || allowlistedGroup;
+  return !!ctx.mentioned || allowlistedDiscordChannel;
 }

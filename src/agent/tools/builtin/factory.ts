@@ -15,6 +15,7 @@ import type { SessionTranscriptStore } from "../../session-transcript.js";
 import type { SystemCapabilityConfig } from "../../../system/interface.js";
 import { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
 import { createLogger } from "../../../utils/logger.js";
+import { ensureOwliabotHomeEnv } from "../../../utils/paths.js";
 
 // Core tools
 import { echoTool } from "./echo.js";
@@ -146,6 +147,7 @@ export function createBuiltinTools(
   } = opts;
 
   const allowWrite = toolsConfig?.allowWrite ?? false;
+  const owliabotHome = ensureOwliabotHomeEnv();
 
   const builtins: (ToolDefinition | null)[] = [
     // ─────────────────────────────────────────────────────────────────────────
@@ -167,8 +169,8 @@ export function createBuiltinTools(
     // ─────────────────────────────────────────────────────────────────────────
     // FS read tools (always available)
     // ─────────────────────────────────────────────────────────────────────────
-    createListFilesTool({ workspace }),
-    createReadFileTool(workspace),
+    createListFilesTool({ workspace, owliabotHome }),
+    createReadFileTool({ workspace, owliabotHome }),
 
     // ─────────────────────────────────────────────────────────────────────────
     // FS write tools (gated by allowWrite)
