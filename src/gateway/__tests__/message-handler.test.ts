@@ -407,6 +407,7 @@ describe("message-handler", () => {
       body: "Hello",
       timestamp: Date.now(),
       chatType: "direct",
+      setTyping: vi.fn(),
     } as MsgContext);
 
     it("skips message when shouldHandleMessage returns false", async () => {
@@ -414,9 +415,11 @@ describe("message-handler", () => {
       vi.mocked(shouldHandleMessage).mockReturnValue(false);
 
       const deps = makeDeps();
-      await handleMessage(makeCtx(), deps);
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
 
       expect(deps.sessionStore.getOrCreate).not.toHaveBeenCalled();
+      expect(vi.mocked(ctx.setTyping as any)).not.toHaveBeenCalled();
     });
 
     it("skips message when idempotency check fails", async () => {
@@ -433,9 +436,11 @@ describe("message-handler", () => {
       } as any;
       deps.config.infra = { idempotency: { enabled: true } };
 
-      await handleMessage(makeCtx(), deps);
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
 
       expect(deps.sessionStore.getOrCreate).not.toHaveBeenCalled();
+      expect(vi.mocked(ctx.setTyping as any)).not.toHaveBeenCalled();
     });
 
     it("sends rate limit warning when rate limit exceeded", async () => {
@@ -457,7 +462,8 @@ describe("message-handler", () => {
       } as any;
       deps.config.infra = { rateLimit: { enabled: true } };
 
-      await handleMessage(makeCtx(), deps);
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
 
       expect(mockChannel.send).toHaveBeenCalledWith(
         "user1",
@@ -465,6 +471,10 @@ describe("message-handler", () => {
           text: expect.stringMatching(/\d+\s*秒/),
         })
       );
+
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenNthCalledWith(1, true);
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenLastCalledWith(false);
     });
 
     it("calls agentic loop and sends response", async () => {
@@ -477,7 +487,8 @@ describe("message-handler", () => {
       const deps = makeDeps();
       deps.channels.register(mockChannel as any);
 
-      await handleMessage(makeCtx(), deps);
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
 
       expect(runAgenticLoop).toHaveBeenCalled();
       expect(mockChannel.send).toHaveBeenCalledWith(
@@ -486,6 +497,10 @@ describe("message-handler", () => {
           text: "Response",
         })
       );
+
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenNthCalledWith(1, true);
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenLastCalledWith(false);
     });
 
     it("appends messages to transcript", async () => {
@@ -496,7 +511,8 @@ describe("message-handler", () => {
       const deps = makeDeps();
       deps.channels.register(mockChannel as any);
 
-      await handleMessage(makeCtx(), deps);
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
 
       // User message + assistant response
       expect(deps.transcripts.append).toHaveBeenCalledTimes(2);
@@ -508,6 +524,8 @@ describe("message-handler", () => {
         "sid123",
         expect.objectContaining({ role: "assistant", content: "Response" })
       );
+
+      expect(vi.mocked(ctx.setTyping as any)).toHaveBeenCalledTimes(2);
     });
   });
 });

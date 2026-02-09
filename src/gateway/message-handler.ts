@@ -272,149 +272,160 @@ export async function handleMessage(
     return;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Infrastructure: Rate Limiting
-  // ─────────────────────────────────────────────────────────────────────────
-  const rateLimitResult = checkRateLimit(ctx, infraStore, infraConfig, now);
-  if (!rateLimitResult.allowed) {
-    await sendRateLimitWarning(ctx, channels, rateLimitResult.waitSeconds!);
-    return;
-  }
+  let typingOn = false;
+  try {
+    // Only show typing once we've decided we'll process this message (and it's not a duplicate).
+    if (ctx.setTyping) {
+      ctx.setTyping(true);
+      typingOn = true;
+    }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Handle /status command (infrastructure status)
-  // ─────────────────────────────────────────────────────────────────────────
-  const statusCmd = await tryHandleStatusCommand({
-    ctx,
-    channels,
-    infraStore,
-  });
-  if (statusCmd.handled) return;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Infrastructure: Rate Limiting
+    // ─────────────────────────────────────────────────────────────────────────
+    const rateLimitResult = checkRateLimit(ctx, infraStore, infraConfig, now);
+    if (!rateLimitResult.allowed) {
+      await sendRateLimitWarning(ctx, channels, rateLimitResult.waitSeconds!);
+      return;
+    }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Handle slash commands (/new, /history, etc.)
-  // ─────────────────────────────────────────────────────────────────────────
-  const cmd = await tryHandleCommand({
-    ctx,
-    sessionKey,
-    sessionStore,
-    transcripts,
-    channels,
-    resetTriggers: config.session?.resetTriggers,
-    defaultModelLabel: config.providers?.[0]?.model,
-    workspacePath: config.workspace,
-    summaryModel: config.session?.summaryModel
-      ? {
-          provider: config.providers?.[0]?.id,
-          model: config.session.summaryModel,
-          apiKey: config.providers?.[0]?.apiKey,
-        }
-      : config.providers?.[0]
-        ? {
-            provider: config.providers[0].id,
-            model: config.providers[0].model,
-            apiKey: config.providers[0].apiKey,
-          }
-        : undefined,
-    summarizeOnReset: config.session?.summarizeOnReset,
-    timezone: config.timezone,
-  });
-  if (cmd.handled) return;
-
-  log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Session Management
-  // ─────────────────────────────────────────────────────────────────────────
-  const entry = await sessionStore.getOrCreate(sessionKey, {
-    channel: ctx.channel,
-    chatType: ctx.chatType,
-    groupId: ctx.groupId,
-    displayName: ctx.senderName,
-  });
-
-  // Append user message to transcript
-  const userMessage: Message = {
-    role: "user",
-    content: ctx.body,
-    timestamp: ctx.timestamp,
-  };
-  await transcripts.append(entry.sessionId, userMessage);
-
-  // Get conversation history
-  const history = await transcripts.getHistory(entry.sessionId);
-
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt({
-    workspace,
-    channel: ctx.channel,
-    chatType: ctx.chatType,
-    timezone: config.timezone,
-    model: config.providers[0].model,
-    skills: skillsResult ?? undefined,
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Agentic Loop
-  // ─────────────────────────────────────────────────────────────────────────
-  const conversationMessages = createConversation(systemPrompt, history);
-  
-  const loopResult = await runAgenticLoop(
-    conversationMessages,
-    {
-      sessionKey,
-      agentId,
-      sessionId: entry.sessionId,
-      userId: ctx.from,
-      channelId: ctx.channel,
-      chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
-      workspacePath: config.workspace,
-      memorySearchConfig: config.memorySearch,
-      securityConfig: config.security,
-    },
-    {
-      providers: config.providers,
-      tools,
-      writeGateChannel: writeGateChannels.get(ctx.channel),
-      transcripts,
-    },
-  );
-
-  const finalContent = loopResult.content;
-
-  log.info(`Final response: ${finalContent.slice(0, 50)}...`);
-
-  // Append assistant response to session
-  const assistantMessage: Message = {
-    role: "assistant",
-    content: finalContent,
-    timestamp: Date.now(),
-  };
-  await transcripts.append(entry.sessionId, assistantMessage);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Send Response
-  // ─────────────────────────────────────────────────────────────────────────
-  const channel = channels.get(ctx.channel);
-  if (channel) {
-    const target = ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
-    await channel.send(target, {
-      text: finalContent,
-      replyToId: ctx.messageId,
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handle /status command (infrastructure status)
+    // ─────────────────────────────────────────────────────────────────────────
+    const statusCmd = await tryHandleStatusCommand({
+      ctx,
+      channels,
+      infraStore,
     });
-  }
+    if (statusCmd.handled) return;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Log Event
-  // ─────────────────────────────────────────────────────────────────────────
-  logMessageEvent(
-    infraStore,
-    infraConfig,
-    ctx,
-    sessionKey,
-    loopResult.iterations,
-    finalContent.length,
-    now,
-    finalContent.startsWith("⚠️"),
-  );
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handle slash commands (/new, /history, etc.)
+    // ─────────────────────────────────────────────────────────────────────────
+    const cmd = await tryHandleCommand({
+      ctx,
+      sessionKey,
+      sessionStore,
+      transcripts,
+      channels,
+      resetTriggers: config.session?.resetTriggers,
+      defaultModelLabel: config.providers?.[0]?.model,
+      workspacePath: config.workspace,
+      summaryModel: config.session?.summaryModel
+        ? {
+            provider: config.providers?.[0]?.id,
+            model: config.session.summaryModel,
+            apiKey: config.providers?.[0]?.apiKey,
+          }
+        : config.providers?.[0]
+          ? {
+              provider: config.providers[0].id,
+              model: config.providers[0].model,
+              apiKey: config.providers[0].apiKey,
+            }
+          : undefined,
+      summarizeOnReset: config.session?.summarizeOnReset,
+      timezone: config.timezone,
+    });
+    if (cmd.handled) return;
+
+    log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Session Management
+    // ─────────────────────────────────────────────────────────────────────────
+    const entry = await sessionStore.getOrCreate(sessionKey, {
+      channel: ctx.channel,
+      chatType: ctx.chatType,
+      groupId: ctx.groupId,
+      displayName: ctx.senderName,
+    });
+
+    // Append user message to transcript
+    const userMessage: Message = {
+      role: "user",
+      content: ctx.body,
+      timestamp: ctx.timestamp,
+    };
+    await transcripts.append(entry.sessionId, userMessage);
+
+    // Get conversation history
+    const history = await transcripts.getHistory(entry.sessionId);
+
+    // Build system prompt
+    const systemPrompt = buildSystemPrompt({
+      workspace,
+      channel: ctx.channel,
+      chatType: ctx.chatType,
+      timezone: config.timezone,
+      model: config.providers[0].model,
+      skills: skillsResult ?? undefined,
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Agentic Loop
+    // ─────────────────────────────────────────────────────────────────────────
+    const conversationMessages = createConversation(systemPrompt, history);
+    
+    const loopResult = await runAgenticLoop(
+      conversationMessages,
+      {
+        sessionKey,
+        agentId,
+        sessionId: entry.sessionId,
+        userId: ctx.from,
+        channelId: ctx.channel,
+        chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
+        workspacePath: config.workspace,
+        memorySearchConfig: config.memorySearch,
+        securityConfig: config.security,
+      },
+      {
+        providers: config.providers,
+        tools,
+        writeGateChannel: writeGateChannels.get(ctx.channel),
+        transcripts,
+      },
+    );
+
+    const finalContent = loopResult.content;
+
+    log.info(`Final response: ${finalContent.slice(0, 50)}...`);
+
+    // Append assistant response to session
+    const assistantMessage: Message = {
+      role: "assistant",
+      content: finalContent,
+      timestamp: Date.now(),
+    };
+    await transcripts.append(entry.sessionId, assistantMessage);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Send Response
+    // ─────────────────────────────────────────────────────────────────────────
+    const channel = channels.get(ctx.channel);
+    if (channel) {
+      const target = ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
+      await channel.send(target, {
+        text: finalContent,
+        replyToId: ctx.messageId,
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Log Event
+    // ─────────────────────────────────────────────────────────────────────────
+    logMessageEvent(
+      infraStore,
+      infraConfig,
+      ctx,
+      sessionKey,
+      loopResult.iterations,
+      finalContent.length,
+      now,
+      finalContent.startsWith("⚠️"),
+    );
+  } finally {
+    if (typingOn) ctx.setTyping?.(false);
+  }
 }
