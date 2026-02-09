@@ -6,6 +6,8 @@ import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
 import { executeSystemRequest } from "../../system/executor.js";
 import type { SystemCapabilityConfig } from "../../system/interface.js";
+import { dirname } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 
 export interface GatewayHttpConfig {
   enabled?: boolean;
@@ -24,6 +26,12 @@ export async function startGatewayHttp(opts: {
   workspacePath?: string;
   system?: SystemCapabilityConfig;
 }) {
+  // Ensure sqlite parent dir exists (better-sqlite3 won't create it).
+  const dbDir = dirname(opts.config.sqlitePath);
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true });
+  }
+
   const store = createStore(opts.config.sqlitePath);
   const tools = await createGatewayToolRegistry(
     opts.workspacePath ?? process.cwd()
@@ -461,8 +469,15 @@ export async function startGatewayHttp(opts: {
     );
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(opts.config.port, opts.config.host, () => resolve());
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: unknown) => {
+      reject(err);
+    };
+    server.once("error", onError);
+    server.listen(opts.config.port, opts.config.host, () => {
+      server.off("error", onError);
+      resolve();
+    });
   });
 
   const address = server.address();

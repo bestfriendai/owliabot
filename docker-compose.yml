@@ -9,13 +9,11 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
-      - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml
-      - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ~/.owliabot/app.yaml:/app/config/app.yaml
+      - ~/.owliabot:/home/owliabot/.owliabot
       - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=UTC
-    command: ["start", "-c", "/app/config/app.yaml"]
+    command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
       interval: 5s

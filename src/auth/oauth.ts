@@ -20,6 +20,7 @@ import { join, dirname } from "node:path";
 import open from "open";
 import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
+import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 
 const log = createLogger("oauth");
 
@@ -27,9 +28,8 @@ const log = createLogger("oauth");
 export type SupportedOAuthProvider = "openai-codex";
 
 const AUTH_DIR = join(
-  process.env.HOME ?? process.env.USERPROFILE ?? ".",
-  ".owliabot",
-  "auth"  // Save auth files in auth/ subdirectory for proper Docker volume mounting
+  ensureOwliabotHomeEnv(),
+  "auth" // Save auth files in auth/ subdirectory for proper Docker volume mounting
 );
 
 /** Get auth file path for a specific provider */

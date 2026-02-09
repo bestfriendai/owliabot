@@ -1,5 +1,6 @@
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { ensureOwliabotHomeEnv } from "../../utils/paths.js";
 
 export interface TranscriptScanResult {
   absPath: string;
@@ -9,8 +10,7 @@ export interface TranscriptScanResult {
 
 function defaultSessionsDir(): string {
   // Aligned with src/entry.ts (do not trust arbitrary config; use process env).
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-  return path.join(homeDir, ".owliabot", "sessions");
+  return path.join(ensureOwliabotHomeEnv(), "sessions");
 }
 
 function isSafeFilename(name: string): boolean {

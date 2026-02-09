@@ -19,6 +19,7 @@ import {
 import { runOnboarding } from "./onboarding/onboard.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 import type { Config } from "./config/schema.js";
+import { defaultConfigPath, ensureOwliabotHomeEnv } from "./utils/paths.js";
 
 const log = logger;
 
@@ -88,11 +89,12 @@ program
   .description("Start the bot")
   .option(
     "-c, --config <path>",
-    "Config file path (default: ~/.owlia_dev/app.yaml)",
-    "~/.owlia_dev/app.yaml"
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
   )
   .action(async (options) => {
     try {
+      ensureOwliabotHomeEnv();
       log.info("Starting OwliaBot...");
 
       // Load config
@@ -104,9 +106,8 @@ program
       // Load workspace
       const workspace = await loadWorkspace(config.workspace);
 
-      // Determine sessions directory
-      const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-      const sessionsDir = join(homeDir, ".owliabot", "sessions");
+      // Determine sessions directory (fixed under OWLIABOT_HOME)
+      const sessionsDir = join(ensureOwliabotHomeEnv(), "sessions");
 
       // Start gateway (message handler)
       const stopGateway = await startGateway({
@@ -167,7 +168,8 @@ token
   .action(async (channel: string) => {
     try {
       const { saveSecrets } = await import("./onboarding/secrets.js");
-      const appConfigPath = DEV_APP_CONFIG_PATH;
+      // Store alongside the default app.yaml unless user runs with a custom -c path.
+      const appConfigPath = process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
 
       if (channel === "discord") {
         const value = process.env.DISCORD_BOT_TOKEN;
@@ -175,7 +177,7 @@ token
           throw new Error("DISCORD_BOT_TOKEN env not set");
         }
         await saveSecrets(appConfigPath, { discord: { token: value } });
-        log.info("Discord token saved to ~/.owlia_dev/secrets.yaml");
+        log.info("Discord token saved to secrets.yaml next to app config");
         return;
       }
 
@@ -185,7 +187,7 @@ token
           throw new Error("TELEGRAM_BOT_TOKEN env not set");
         }
         await saveSecrets(appConfigPath, { telegram: { token: value } });
-        log.info("Telegram token saved to ~/.owlia_dev/secrets.yaml");
+        log.info("Telegram token saved to secrets.yaml next to app config");
         return;
       }
 
@@ -305,7 +307,7 @@ auth
       log.info("Note: Anthropic tokens are stored in secrets.yaml - edit that file to remove.");
     } else if (provider === "anthropic") {
       log.info("Anthropic tokens are stored in secrets.yaml.");
-      log.info("To remove, edit ~/.owlia_dev/secrets.yaml and delete the anthropic section.");
+      log.info("To remove, edit secrets.yaml next to your app config and delete the anthropic section.");
     } else {
       const selectedProvider: SupportedOAuthProvider =
         validProviders.includes(provider as SupportedOAuthProvider)

@@ -7,6 +7,7 @@ import { appendFile, readFile } from "node:fs/promises";
 import { ulid } from "ulid";
 import { redactParams } from "./redact.js";
 import { createLogger } from "../utils/logger.js";
+import { defaultAuditLogPath } from "../utils/paths.js";
 
 const log = createLogger("audit");
 
@@ -65,7 +66,7 @@ export class AuditLogger {
   private memoryBuffer: string[] = [];
   private readonly maxBufferSize = 1000;
 
-  constructor(logPath = "workspace/audit.jsonl") {
+  constructor(logPath = defaultAuditLogPath()) {
     this.logPath = logPath;
   }
 

@@ -175,7 +175,8 @@ const gatewayHttpSchema = z.object({
   port: z.number().int().default(8787),
   token: z.string().optional(),
   allowlist: z.array(z.string()).default([]),
-  sqlitePath: z.string().default("./workspace/gateway.db"),
+  // NOTE: Defaults to OWLIABOT_HOME so it is stable across CWD changes.
+  sqlitePath: z.string().default("${OWLIABOT_HOME}/gateway/http.db"),
   idempotencyTtlMs: z
     .number()
     .int()
@@ -207,7 +208,8 @@ const sessionSchema = z
 const infraSchema = z
   .object({
     enabled: z.boolean().default(true),
-    sqlitePath: z.string().default("~/.owliabot/infra.db"),
+    // Stored under OWLIABOT_HOME/gateway by default.
+    sqlitePath: z.string().default("${OWLIABOT_HOME}/gateway/infra.db"),
     rateLimit: z
       .object({
         enabled: z.boolean().default(true),
@@ -236,7 +238,7 @@ const infraSchema = z
   })
   .default({
     enabled: true,
-    sqlitePath: "~/.owliabot/infra.db",
+    sqlitePath: "${OWLIABOT_HOME}/gateway/infra.db",
     rateLimit: { enabled: true, windowMs: 60_000, maxMessages: 30 },
     idempotency: { enabled: true, ttlMs: 5 * 60 * 1000 },
     eventStore: { enabled: true, ttlMs: 24 * 60 * 60 * 1000 },
@@ -388,7 +390,7 @@ export const configSchema = z.object({
   notifications: notificationsSchema.optional(),
 
   // Workspace path
-  workspace: z.string().default("./workspace"),
+  workspace: z.string().default("${OWLIABOT_HOME}/workspace"),
 
   // Timezone (used in prompts)
   timezone: z.string().default("UTC"),

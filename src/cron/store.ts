@@ -2,10 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSON5 from "json5";
+import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 
 import type { CronStore } from "./types.js";
 
-export const DEFAULT_CRON_DIR = path.join(os.homedir(), ".owliabot", "cron");
+export const DEFAULT_CRON_DIR = path.join(ensureOwliabotHomeEnv(), "cron");
 export const DEFAULT_CRON_STORE_PATH = path.join(DEFAULT_CRON_DIR, "jobs.json");
 
 /** In-process cache, shared across CronService instances. */

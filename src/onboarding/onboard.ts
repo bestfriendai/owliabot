@@ -24,6 +24,7 @@ import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityCon
 import { saveAppConfig, DEFAULT_APP_CONFIG_PATH, IS_DEV_MODE } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, loadSecrets, type SecretsConfig } from "./secrets.js";
+import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
 import { runClawletOnboarding } from "./clawlet-onboard.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
@@ -88,7 +89,7 @@ async function detectExistingConfig(
     if (existing.gateway?.token) { result.gatewayToken = existing.gateway.token; hasAny = true; }
 
     // Check OAuth tokens (same location for both modes)
-    const authDir = join(homedir(), ".owliabot", "auth");
+    const authDir = join(ensureOwliabotHomeEnv(), "auth");
     if (existsSync(join(authDir, "anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
     if (existsSync(join(authDir, "openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
 
@@ -915,13 +916,11 @@ services:
     ports:
       - "127.0.0.1:${gatewayPort}:8787"
     volumes:
-      - ${dockerConfigPath}/secrets.yaml:/app/config/secrets.yaml
-      - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ${dockerConfigPath}/app.yaml:/app/config/app.yaml
+      - ${dockerConfigPath}:/home/owliabot/.owliabot
       - ${dockerConfigPath}/workspace:/app/workspace
     environment:
       - TZ=${tz}
-    command: ["start", "-c", "/app/config/app.yaml"]
+    command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
       interval: 5s
@@ -948,13 +947,11 @@ docker run -d \\
   --name owliabot \\
   --restart unless-stopped \\
   -p 127.0.0.1:${gatewayPort}:8787 \\
-  -v ${paths.shellConfigPath}/secrets.yaml:/app/config/secrets.yaml \\
-  -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
-  -v ${paths.shellConfigPath}/app.yaml:/app/config/app.yaml \\
+  -v ${paths.shellConfigPath}:/home/owliabot/.owliabot \\
   -v ${getDockerRunWorkspaceMount(paths)} \\
   -e TZ=${tz} \\
   \${OWLIABOT_IMAGE:-${defaultImage}} \\
-  start -c /app/config/app.yaml
+  start -c /home/owliabot/.owliabot/app.yaml
 `);
 
   console.log("To start:");

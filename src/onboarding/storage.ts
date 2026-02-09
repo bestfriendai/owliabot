@@ -2,14 +2,15 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { AppConfig } from "./types.js";
+import { ensureOwliabotHomeEnv, resolveHomeDir } from "../utils/paths.js";
 
-const HOME = process.env.HOME ?? process.env.USERPROFILE ?? ".";
+const HOME = resolveHomeDir();
 
 /** Check if running in dev mode (OWLIABOT_DEV=1 or OWLIABOT_DEV=true) */
 export const IS_DEV_MODE = ["1", "true"].includes(process.env.OWLIABOT_DEV?.toLowerCase() ?? "");
 
 /** Production config directory (~/.owliabot) */
-export const PROD_APP_DIR = join(HOME, ".owliabot");
+export const PROD_APP_DIR = ensureOwliabotHomeEnv();
 
 /** Dev config directory (~/.owlia_dev) - only used when OWLIABOT_DEV=1 */
 export const DEV_APP_DIR = join(HOME, ".owlia_dev");

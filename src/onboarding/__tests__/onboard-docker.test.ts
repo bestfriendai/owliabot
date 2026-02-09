@@ -128,16 +128,14 @@ gateway:
     ports:
       - "127.0.0.1:${gatewayPort}:8787"
     volumes:
-      - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml
-      - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ~/.owliabot/app.yaml:/app/config/app.yaml
+      - ~/.owliabot:/home/owliabot/.owliabot
       - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=${tz}
 `;
       
       expect(composeYaml).toContain(`- "127.0.0.1:${gatewayPort}:8787"`);
-      expect(composeYaml).toContain("secrets.yaml:/app/config/secrets.yaml");
+      expect(composeYaml).toContain("~/.owliabot:/home/owliabot/.owliabot");
       expect(composeYaml).toContain(`TZ=${tz}`);
     });
 

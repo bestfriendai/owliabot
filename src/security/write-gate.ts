@@ -15,6 +15,7 @@ import { dirname } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import type { ToolCall } from "../agent/tools/interface.js";
 import type { OutboundMessage } from "../channels/interface.js";
+import { defaultAuditLogPath } from "../utils/paths.js";
 
 const log = createLogger("write-gate");
 
@@ -308,13 +309,15 @@ export function createWriteGate(
     writeToolConfirmationTimeoutMs?: number;
   } | undefined,
   channel: WriteGateChannel,
+  // Kept for backwards-compat in call sites; audit is now stored under OWLIABOT_HOME/gateway.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   workspacePath: string,
 ): WriteGate {
   const cfg: WriteGateConfig = {
     allowList: security?.writeToolAllowList ?? [],
     confirmationEnabled: security?.writeToolConfirmation ?? true,
     timeoutMs: security?.writeToolConfirmationTimeoutMs ?? 60_000,
-    auditPath: `${workspacePath}/audit.jsonl`,
+    auditPath: defaultAuditLogPath(),
   };
   return new WriteGate(cfg, channel);
 }

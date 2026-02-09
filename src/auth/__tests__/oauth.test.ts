@@ -11,6 +11,7 @@ import {
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import * as piAi from "@mariozechner/pi-ai";
+import { ensureOwliabotHomeEnv } from "../../utils/paths.js";
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
@@ -29,11 +30,9 @@ vi.mock("../../utils/logger.js", () => ({
   }),
 }));
 
-const AUTH_DIR = join(
-  process.env.HOME ?? process.env.USERPROFILE ?? ".",
-  ".owliabot",
-  "auth"
-);
+function authDir(): string {
+  return join(ensureOwliabotHomeEnv(), "auth");
+}
 
 describe("oauth", () => {
   beforeEach(() => {
@@ -55,7 +54,7 @@ describe("oauth", () => {
 
       expect(result).toEqual(mockCredentials);
       expect(readFile).toHaveBeenCalledWith(
-        join(AUTH_DIR, "auth-openai-codex.json"),
+        join(authDir(), "auth-openai-codex.json"),
         "utf-8"
       );
     });
@@ -132,7 +131,7 @@ describe("oauth", () => {
       await saveOAuthCredentials(credentials as any, "openai-codex");
 
       expect(writeFile).toHaveBeenCalledWith(
-        join(AUTH_DIR, "auth-openai-codex.json"),
+        join(authDir(), "auth-openai-codex.json"),
         JSON.stringify(credentials, null, 2)
       );
     });
@@ -145,7 +144,7 @@ describe("oauth", () => {
       await clearOAuthCredentials("openai-codex");
 
       expect(unlink).toHaveBeenCalledWith(
-        join(AUTH_DIR, "auth-openai-codex.json")
+        join(authDir(), "auth-openai-codex.json")
       );
       expect(unlink).toHaveBeenCalledTimes(1);
     });

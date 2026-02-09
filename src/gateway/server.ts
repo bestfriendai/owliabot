@@ -63,6 +63,13 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync } from "node:fs";
+import {
+  defaultGatewayDir,
+  defaultUserSkillsDir,
+  ensureOwliabotHomeEnv,
+  resolvePathLike,
+  resolveOwliabotHome,
+} from "../utils/paths.js";
 
 /**
  * Resolve bundled skills directory (like OpenClaw's approach)
@@ -98,10 +105,7 @@ function resolveBundledSkillsDir(): string | undefined {
   candidates.push(resolve(process.cwd(), "skills"));
 
   // 4. Try common install locations
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-  if (homeDir) {
-    candidates.push(resolve(homeDir, ".owliabot", "bundled-skills"));
-  }
+  candidates.push(resolve(resolveOwliabotHome(), "bundled-skills"));
 
   // Find first existing directory
   for (const candidate of candidates) {
@@ -136,10 +140,10 @@ export async function startGateway(
   let infraStore: InfraStore | null = null;
   const infraConfig = config.infra;
   if (infraConfig?.enabled !== false) {
-    const infraDbPath = infraConfig?.sqlitePath?.replace(
-      /^~/,
-      homedir(),
-    ) ?? join(homedir(), ".owliabot", "infra.db");
+    ensureOwliabotHomeEnv();
+    const infraDbPath = infraConfig?.sqlitePath?.trim()
+      ? resolvePathLike(infraConfig.sqlitePath)
+      : join(defaultGatewayDir(), "infra.db");
 
     // Ensure parent directory exists
     const infraDbDir = dirname(infraDbPath);
@@ -208,7 +212,7 @@ export async function startGateway(
   const skillsEnabled = config.skills?.enabled ?? true;
   if (skillsEnabled) {
     const builtinSkillsDir = resolveBundledSkillsDir();
-    const userSkillsDir = join(homedir(), ".owliabot", "skills");
+    const userSkillsDir = defaultUserSkillsDir();
     const workspaceSkillsDir =
       config.skills?.directory ?? join(config.workspace, "skills");
 

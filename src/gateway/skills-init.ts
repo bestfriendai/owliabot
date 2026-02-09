@@ -10,6 +10,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { defaultUserSkillsDir, resolveOwliabotHome } from "../utils/paths.js";
 
 const log = createLogger("gateway:skills");
 
@@ -75,10 +76,7 @@ export function resolveBundledSkillsDir(): string | undefined {
   candidates.push(resolve(process.cwd(), "skills"));
 
   // 4. Try common install locations
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-  if (homeDir) {
-    candidates.push(resolve(homeDir, ".owliabot", "bundled-skills"));
-  }
+  candidates.push(resolve(resolveOwliabotHome(), "bundled-skills"));
 
   // Find first existing directory
   for (const candidate of candidates) {
@@ -112,7 +110,7 @@ export function collectSkillsDirs(config: SkillsInitConfig): string[] {
   }
 
   // 2. User home skills
-  const userSkillsDir = join(homedir(), ".owliabot", "skills");
+  const userSkillsDir = defaultUserSkillsDir();
   if (existsSync(userSkillsDir)) {
     dirs.push(userSkillsDir);
     log.debug(`Skills: using user dir: ${userSkillsDir}`);
