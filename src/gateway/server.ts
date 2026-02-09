@@ -36,6 +36,7 @@ import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
+import { GroupHistoryBuffer } from "./group-history.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -133,6 +134,8 @@ export async function startGateway(
   options: GatewayOptions,
 ): Promise<() => Promise<void>> {
   const { config, workspace, sessionsDir } = options;
+
+  const groupHistory = new GroupHistoryBuffer(config.group?.historyLimit ?? 50);
 
   const channels = new ChannelRegistry();
 
@@ -267,6 +270,7 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        groupHistory,
         infraStore,
       );
     });
@@ -302,6 +306,7 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        groupHistory,
         infraStore,
       );
     });
@@ -437,14 +442,25 @@ async function handleMessage(
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
   skillsResult: SkillsInitResult | null,
+  groupHistory: GroupHistoryBuffer,
   infraStore: InfraStore | null,
 ): Promise<void> {
+  const agentId = resolveAgentId({ config });
+  const sessionKey = resolveSessionKey({ ctx, config });
+
+  // Mention-only groups: record non-activated group messages for later context.
   if (!shouldHandleMessage(ctx, config)) {
+    if (ctx.chatType === "group") {
+      groupHistory.record(sessionKey, {
+        sender: ctx.senderName,
+        body: ctx.body,
+        timestamp: ctx.timestamp,
+        messageId: ctx.messageId,
+      });
+    }
     return;
   }
 
-  const agentId = resolveAgentId({ config });
-  const sessionKey = resolveSessionKey({ ctx, config });
   const now = Date.now();
   const infraConfig = config.infra;
 
@@ -548,7 +564,44 @@ async function handleMessage(
   });
   if (cmd.handled) return;
 
-  log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
+  // Build effective body for the LLM (keep ctx.body intact for command parsing).
+  let effectiveBody = ctx.body;
+
+  if (ctx.chatType === "group") {
+    // Reply-to context for group mentions.
+    if (ctx.replyToBody && ctx.replyToBody.trim().length > 0) {
+      const replySender = (ctx.replyToSender ?? "Unknown").trim() || "Unknown";
+      effectiveBody =
+        `[Replying to ${replySender}]\n` +
+        `${ctx.replyToBody.trim()}\n` +
+        `[/Replying]\n\n` +
+        effectiveBody;
+    }
+
+    // Sender label injection so the LLM can attribute authors.
+    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
+    const sender =
+      ctx.senderUsername && ctx.senderUsername.trim().length > 0
+        ? `${ctx.senderName} (@${ctx.senderUsername})`
+        : ctx.senderName;
+    effectiveBody = `[Telegram group "${groupTitle}" | ${sender}]\n${effectiveBody}`;
+
+    // Inject recent context only when the bot is explicitly invoked.
+    if (ctx.mentioned) {
+      const recent = groupHistory.getHistory(sessionKey);
+      if (recent.length > 0) {
+        const lines = recent.map((e) => `${e.sender}: ${e.body}`);
+        effectiveBody =
+          `[Recent group messages (context)]\n` +
+          `${lines.join("\n")}\n` +
+          `[End context]\n` +
+          effectiveBody;
+        groupHistory.clear(sessionKey);
+      }
+    }
+  }
+
+  log.info(`Message from ${sessionKey}: ${effectiveBody.slice(0, 50)}...`);
 
   const entry = await sessionStore.getOrCreate(sessionKey, {
     channel: ctx.channel,
@@ -560,7 +613,7 @@ async function handleMessage(
   // Append user message to transcript
   const userMessage: Message = {
     role: "user",
-    content: ctx.body,
+    content: effectiveBody,
     timestamp: ctx.timestamp,
   };
   await transcripts.append(entry.sessionId, userMessage);

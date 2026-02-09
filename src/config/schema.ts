@@ -259,8 +259,10 @@ const agentsSchema = z
 const groupSchema = z
   .object({
     activation: z.enum(["mention", "always"]).default("mention"),
+    /** In group chats, keep a rolling buffer of recent messages as mention-time context. */
+    historyLimit: z.number().int().nonnegative().default(50),
   })
-  .default({ activation: "mention" });
+  .default({ activation: "mention", historyLimit: 50 });
 
 // Clawlet-specific configuration (nested under wallet.clawlet)
 const clawletConfigSchema = z

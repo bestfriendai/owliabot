@@ -29,6 +29,8 @@ export interface MsgContext {
   from: string;
   senderName: string;
   senderUsername?: string;
+  replyToBody?: string;
+  replyToSender?: string;
 
   /**
    * Whether the bot was explicitly mentioned / invoked in this message.

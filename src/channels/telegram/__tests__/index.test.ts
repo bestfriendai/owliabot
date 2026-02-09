@@ -112,6 +112,37 @@ describe("telegram plugin", () => {
     );
   });
 
+  it("extracts reply-to context into MsgContext", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+    const ctx = makeCtx({
+      chat: { type: "group", id: -100999, title: "Test Group" },
+      message: {
+        text: "@owlia 帮忙分析下",
+        message_id: 100,
+        date: 1700000000,
+        reply_to_message: {
+          text: "现在行情怎么样",
+          message_id: 99,
+          from: { id: 456, first_name: "Bob", username: "bob" },
+        },
+      },
+    });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const msgCtx = handler.mock.calls[0][0];
+    expect(msgCtx.replyToBody).toBe("现在行情怎么样");
+    expect(msgCtx.replyToSender).toBe("Bob");
+  });
+
   it("sends markdown as HTML and falls back to plain text", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
     const grammy = (await import("grammy")) as any;
