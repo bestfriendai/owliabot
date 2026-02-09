@@ -6,6 +6,7 @@
 import { program } from "commander";
 import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
+import { ensureWorkspaceInitialized } from "./workspace/init.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
 import { logger } from "./utils/logger.js";
@@ -102,6 +103,10 @@ program
 
       // Check for missing OAuth credentials and print instructions
       await checkOAuthProviders(config);
+
+      // Ensure workspace scaffold exists (idempotent; does not overwrite existing files).
+      // This keeps system prompt sections (AGENTS/TOOLS/etc.) present even if users skip onboarding.
+      await ensureWorkspaceInitialized({ workspacePath: config.workspace });
 
       // Load workspace
       const workspace = await loadWorkspace(config.workspace);

@@ -16,7 +16,7 @@ const log = createLogger("cron");
 export interface CronIntegrationDeps {
   config: Config;
   /** Called when a system event is enqueued (for main session jobs) */
-  onSystemEvent?: (text: string, opts?: { agentId?: string | null }) => void;
+  onSystemEvent?: (text: string, opts?: { agentId?: string | null; channel?: string; to?: string }) => void;
   /** Called to request heartbeat on next tick */
   onHeartbeatRequest?: (reason: string) => void;
   /** Called to run heartbeat immediately (for wakeMode=now) */
@@ -31,17 +31,17 @@ export interface CronIntegrationDeps {
 }
 
 /** Queue of pending system events for main session */
-const systemEventQueue: Array<{ text: string; agentId?: string | null }> = [];
+const systemEventQueue: Array<{ text: string; agentId?: string | null; channel?: string; to?: string }> = [];
 
 /** Flag indicating heartbeat was requested */
 let heartbeatRequested = false;
 let heartbeatRequestReason = "";
 
-export function getSystemEventQueue(): Array<{ text: string; agentId?: string | null }> {
+export function getSystemEventQueue(): Array<{ text: string; agentId?: string | null; channel?: string; to?: string }> {
   return systemEventQueue;
 }
 
-export function consumeSystemEvents(): Array<{ text: string; agentId?: string | null }> {
+export function consumeSystemEvents(): Array<{ text: string; agentId?: string | null; channel?: string; to?: string }> {
   const events = [...systemEventQueue];
   systemEventQueue.length = 0;
   return events;
@@ -80,8 +80,13 @@ export function createCronIntegration(deps: CronIntegrationDeps): {
     nowMs: () => Date.now(),
 
     enqueueSystemEvent(text, opts) {
-      systemEventQueue.push({ text, agentId: opts?.agentId });
-      deps.onSystemEvent?.(text, opts);
+      systemEventQueue.push({
+        text,
+        agentId: opts?.agentId,
+        channel: (opts as any)?.channel,
+        to: (opts as any)?.to,
+      });
+      deps.onSystemEvent?.(text, opts as any);
     },
 
     requestHeartbeatNow(opts) {

@@ -9,7 +9,16 @@ export type CronSchedule =
   | { kind: "cron"; expr: string; tz?: string };
 
 export type CronPayload =
-  | { kind: "systemEvent"; text: string }
+  | {
+      kind: "systemEvent";
+      text: string;
+      /**
+       * Optional delivery target for proactive messages.
+       * If omitted, integrations may choose a default (or drop the message).
+       */
+      channel?: string;
+      to?: string;
+    }
   | {
       kind: "agentTurn";
       message: string;
@@ -106,6 +115,8 @@ export interface CronRunHeartbeatResult {
 
 export interface CronSystemEventOptions {
   agentId?: string | null;
+  channel?: string;
+  to?: string;
 }
 
 export interface CronHeartbeatRequestOptions {
