@@ -42,7 +42,7 @@ import { createExecTool, type ExecToolDeps } from "./exec.js";
 import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
-// Wallet tools (require wallet config) - use wallet.ts which has fail-closed + defaultAddress
+// Wallet tools (require wallet config) - use wallet.ts which has fail-closed + dynamic address lookup
 import { createWalletBalanceTool, createWalletTransferTool } from "./wallet.js";
 import type { ClawletClientConfig } from "../../../wallet/index.js";
 

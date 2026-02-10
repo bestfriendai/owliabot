@@ -21,7 +21,6 @@ export async function configureWallet(
       baseUrl: walletConfig.baseUrl,
       requestTimeout: 30000,
       defaultChainId: walletConfig.defaultChainId,
-      ...(walletConfig.defaultAddress ? { defaultAddress: walletConfig.defaultAddress } : {}),
     },
   };
 }
