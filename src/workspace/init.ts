@@ -14,6 +14,7 @@ const BASE_TEMPLATE_FILES = [
   "TOOLS.md",
   "HEARTBEAT.md",
   "MEMORY.md",
+  "BOOT.md",
   "policy.yml",
 ] as const;
 
