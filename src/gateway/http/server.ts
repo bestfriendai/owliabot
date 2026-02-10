@@ -586,12 +586,38 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Register trade capability ──────────────────────────────────────────
-      // Respect the requested scope when registering tools. The scope can be:
-      // - "read" (balance only), "trade" (transfer only), or "read,trade" (both)
-      // - If unspecified, default to "read,trade" for backward compatibility
+      // ── Verify trade capability ───────────────────────────────────────────
+      // Derive tradeCapable from verified token permissions, not request scope.
+      // Test: attempt a minimal invalid transfer; UNAUTHORIZED = no trade scope.
       const scopeStr = typeof scope === "string" ? scope : "read,trade";
-      const tradeCapable = scopeStr.includes("trade");
+      const scopeRequestsTrade = scopeStr.includes("trade");
+      let tradeCapable = false;
+
+      if (scopeRequestsTrade) {
+        try {
+          // Attempt transfer with minimal amount to test permissions
+          // (Expected to fail with validation error if token has trade scope,
+          //  or UNAUTHORIZED if token lacks trade scope)
+          await client.transfer({
+            to: walletAddress, // self-transfer to avoid external effects
+            amount: "0.000000000000000001", // minimal non-zero amount
+            token_type: "ETH",
+            chain_id: resolvedChainId,
+          });
+          // If we got here without error, token has trade capability
+          tradeCapable = true;
+        } catch (err: any) {
+          // Check if error is due to lack of authorization
+          if (err?.code === "UNAUTHORIZED") {
+            tradeCapable = false;
+            log.warn("Token lacks trade permissions despite scope request");
+          } else {
+            // Any other error (validation, insufficient balance, etc.) means
+            // the token has trade permissions but the request was invalid
+            tradeCapable = true;
+          }
+        }
+      }
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
