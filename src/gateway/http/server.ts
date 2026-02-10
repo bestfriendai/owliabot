@@ -555,6 +555,13 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         });
         return;
       }
+      if (scope !== undefined && typeof scope !== "string") {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "scope must be a string" },
+        });
+        return;
+      }
 
       const resolvedChainId = defaultChainId ?? 8453;
       const clawletConfig = {
