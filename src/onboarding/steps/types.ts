@@ -9,8 +9,8 @@ import type { AppConfig } from "../types.js";
 
 export interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
+  hasOAuthAnthro?: boolean;
+  hasOAuthCodex?: boolean;
 }
 
 export interface OnboardOptions {
