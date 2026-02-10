@@ -527,6 +527,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       const baseUrl = body?.baseUrl;
       const token = body?.token;
       const defaultChainId = body?.defaultChainId;
+      const scope = body?.scope;
 
       if (typeof baseUrl !== "string" || baseUrl.length === 0) {
         sendJson(res, 400, {
@@ -586,10 +587,11 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       }
 
       // ── Register trade capability ──────────────────────────────────────────
-      // Always enable both balance and transfer tools upon wallet connection.
-      // Authorization checks are enforced at tool execution time by Clawlet,
-      // not during setup. This keeps the wallet-connect operation non-mutating.
-      const tradeCapable = true;
+      // Respect the requested scope when registering tools. The scope can be:
+      // - "read" (balance only), "trade" (transfer only), or "read,trade" (both)
+      // - If unspecified, default to "read,trade" for backward compatibility
+      const scopeStr = typeof scope === "string" ? scope : "read,trade";
+      const tradeCapable = scopeStr.includes("trade");
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
