@@ -585,22 +585,15 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Probe trade capability (don't block connect) ──────────────────────
-      let tradeCapable = false;
-      try {
-        await client.transfer({
-          to: walletAddress,
-          amount: "0.000000000000000001",
-          token_type: "ETH",
-          chain_id: resolvedChainId,
-        });
-        tradeCapable = true;
-      } catch (err: any) {
-        // UNAUTHORIZED = read-only token; any other error = trade scope available
-        tradeCapable = err?.code !== "UNAUTHORIZED";
-      }
+      // ── Determine trade capability from declared scope ────────────────────
+      const declaredScope = typeof body?.scope === "string" ? body.scope : "read";
+      const tradeCapable = declaredScope === "trade" || declaredScope === "read,trade";
 
       // ── Register tools ────────────────────────────────────────────────────
+      // Always unregister both first to handle reconnect with different scope
+      tools.unregister("wallet_balance");
+      tools.unregister("wallet_transfer");
+
       const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
 
       const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };

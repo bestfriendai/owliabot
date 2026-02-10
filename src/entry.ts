@@ -643,6 +643,7 @@ wallet
   .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
+  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read")
   .action(async (options) => {
     try {
       const { gatewayUrl, gatewayToken } = await loadGatewayInfo(options.config);
@@ -705,6 +706,7 @@ wallet
           baseUrl,
           token,
           defaultChainId: chainId,
+          scope: options.scope,
         }),
       });
 
@@ -716,6 +718,7 @@ wallet
       log.info("Wallet connected successfully!");
       log.info(`  Address: ${json.data.wallet?.address ?? "unknown"}`);
       log.info(`  Balance: ${json.data.wallet?.ethBalance ?? "?"} ETH`);
+      log.info(`  Scope:   ${options.scope}`);
       log.info(`  Tools:   ${json.data.tools.join(", ")}`);
       log.info("");
       log.warn("Note: Wallet config is stored in gateway memory only.");
