@@ -585,13 +585,29 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Register tools (test passed) ──────────────────────────────────────
-      const { createWalletTools } = await import("../../agent/tools/builtin/wallet.js");
+      // ── Probe trade capability (don't block connect) ──────────────────────
+      let tradeCapable = false;
+      try {
+        await client.transfer({
+          to: walletAddress,
+          amount: "0.000000000000000001",
+          token_type: "ETH",
+          chain_id: resolvedChainId,
+        });
+        tradeCapable = true;
+      } catch (err: any) {
+        // UNAUTHORIZED = read-only token; any other error = trade scope available
+        tradeCapable = err?.code !== "UNAUTHORIZED";
+      }
 
-      const walletTools = createWalletTools({
-        clawletConfig,
-        defaultChainId: resolvedChainId,
-      });
+      // ── Register tools ────────────────────────────────────────────────────
+      const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
+
+      const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };
+      const walletTools = [createWalletBalanceTool(toolConfig)];
+      if (tradeCapable) {
+        walletTools.push(createWalletTransferTool(toolConfig));
+      }
 
       const registeredNames: string[] = [];
       for (const tool of walletTools) {
@@ -604,7 +620,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         data: {
           message: "Wallet tools registered",
           tools: registeredNames,
-          wallet: { address: walletAddress, ethBalance },
+          wallet: { address: walletAddress, ethBalance, tradeCapable },
           config: { baseUrl, defaultChainId: resolvedChainId },
         },
       });
