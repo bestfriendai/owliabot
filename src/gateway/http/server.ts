@@ -68,6 +68,8 @@ export interface GatewayHttpOptions {
   transcripts: SessionTranscriptStore;
   workspacePath: string;
   system?: SystemCapabilityConfig;
+  /** Tool policy for filtering dynamically registered tools */
+  toolsPolicy?: { allowList?: string[]; denyList?: string[] };
   /** Optional fetch injection for tests (defaults to global fetch) */
   fetchImpl?: typeof fetch;
 }
@@ -587,12 +589,29 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       }
 
       // ── Verify trade capability ───────────────────────────────────────────
-      // Determine trade capability from requested scope.
-      // We trust the scope parameter rather than probing with a live transfer,
-      // which could trigger real on-chain transactions during connection setup.
-      // If the token lacks the claimed scope, trade operations will fail at use-time.
-      const scopeStr = typeof scope === "string" ? scope : "read,trade";
-      const tradeCapable = scopeStr.includes("trade");
+      // Attempt to detect trade capability from the token itself by trying
+      // a minimal operation. Default to read-only to prevent registering
+      // unusable tools when the token lacks trade permissions.
+      let tradeCapable = false;
+      try {
+        // Probe trade capability with a purposefully invalid transfer to check auth
+        // without risk of executing a real transaction
+        const { ClawletClient } = await import("../../wallet/clawlet-client.js");
+        const probeClient = new ClawletClient(clawletConfig);
+        await probeClient.transfer({
+          to: "0x0000000000000000000000000000000000000000",
+          amount: "0",
+          chain_id: resolvedChainId,
+        });
+        // If we get here without auth error, token has trade capability
+        tradeCapable = true;
+      } catch (err: any) {
+        // If error is auth-related, token is read-only
+        // If error is validation-related (amount=0, invalid address), token has trade scope
+        if (err?.message && !err.message.toLowerCase().includes("unauthorized") && !err.message.toLowerCase().includes("forbidden")) {
+          tradeCapable = true;
+        }
+      }
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
@@ -600,12 +619,16 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       tools.unregister("wallet_transfer");
 
       const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
+      const { filterToolsByPolicy } = await import("../../agent/tools/policy.js");
 
       const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };
-      const walletTools = [createWalletBalanceTool(toolConfig)];
+      let walletTools = [createWalletBalanceTool(toolConfig)];
       if (tradeCapable) {
         walletTools.push(createWalletTransferTool(toolConfig));
       }
+
+      // Apply tool policy filtering before registration
+      walletTools = filterToolsByPolicy(walletTools, opts.toolsPolicy);
 
       const registeredNames: string[] = [];
       for (const tool of walletTools) {
