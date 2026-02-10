@@ -630,8 +630,10 @@ async function loadGatewayInfo(configOverride?: string): Promise<{ gatewayUrl: s
     host = "127.0.0.1";
   }
   const port = http?.port ?? 8787;
+  // Bracket IPv6 literals in URLs (e.g. ::1 → [::1])
+  const urlHost = host.includes(":") ? `[${host}]` : host;
   return {
-    gatewayUrl: `http://${host}:${port}`,
+    gatewayUrl: `http://${urlHost}:${port}`,
     gatewayToken: http?.token,
   };
 }
@@ -640,13 +642,16 @@ wallet
   .command("connect")
   .description("Connect wallet to the running gateway (stored in memory only)")
   .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
+  .option("--gateway-token <token>", "Gateway auth token (overrides config)")
   .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
   .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read")
   .action(async (options) => {
     try {
-      const { gatewayUrl, gatewayToken } = await loadGatewayInfo(options.config);
+      const info = await loadGatewayInfo(options.config);
+      const gatewayUrl = info.gatewayUrl;
+      const gatewayToken = options.gatewayToken ?? info.gatewayToken;
 
       let baseUrl: string = options.baseUrl;
       let token: string | undefined = options.token ?? process.env.CLAWLET_TOKEN;
@@ -733,9 +738,12 @@ wallet
   .command("disconnect")
   .description("Disconnect wallet from the running gateway")
   .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
+  .option("--gateway-token <token>", "Gateway auth token (overrides config)")
   .action(async (options) => {
     try {
-      const { gatewayUrl, gatewayToken } = await loadGatewayInfo(options.config);
+      const info = await loadGatewayInfo(options.config);
+      const gatewayUrl = info.gatewayUrl;
+      const gatewayToken = options.gatewayToken ?? info.gatewayToken;
 
       const res = await fetch(`${gatewayUrl}/admin/wallet`, {
         method: "DELETE",
